@@ -189,3 +189,28 @@ func TestParseCallIDAcceptsWithAndWithoutPrefix(t *testing.T) {
 		t.Fatal("prefixed and bare hex should parse identically")
 	}
 }
+
+func TestDecodeWord64RoundTrips(t *testing.T) {
+	callID, _ := ParseCallID("0x" + strings.Repeat("11", 32))
+	r, err := NewResult(callID, post())
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc := r.Encode()
+	if got := DecodeWord64(enc[128:160]); got != post().PostedAt {
+		t.Errorf("postedAt round-trip: got %d want %d", got, post().PostedAt)
+	}
+	if got := DecodeWord64(enc[160:192]); got != post().FetchedAt {
+		t.Errorf("fetchedAt round-trip: got %d want %d", got, post().FetchedAt)
+	}
+}
+
+// Used on a reporting path, so a short slice must not take the enclave down.
+func TestDecodeWord64ToleratesShortInput(t *testing.T) {
+	if got := DecodeWord64([]byte{1, 2, 3}); got != 0 {
+		t.Errorf("expected 0 for a short word, got %d", got)
+	}
+	if got := DecodeWord64(nil); got != 0 {
+		t.Errorf("expected 0 for nil, got %d", got)
+	}
+}

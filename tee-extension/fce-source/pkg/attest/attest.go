@@ -145,6 +145,16 @@ func (r Result) Encode() []byte {
 	return out
 }
 
+// DecodeWord64 reads a uint64 back out of a 32-byte ABI word, so callers can
+// inspect an encoded result without re-deriving it from the request. Returns 0
+// for a short slice rather than panicking — this is used on a reporting path.
+func DecodeWord64(word []byte) uint64 {
+	if len(word) < 32 {
+		return 0
+	}
+	return binary.BigEndian.Uint64(word[24:32])
+}
+
 // ParseCallID accepts the 0x-prefixed 32-byte hex the instruction carries.
 func ParseCallID(s string) ([32]byte, error) {
 	var out [32]byte

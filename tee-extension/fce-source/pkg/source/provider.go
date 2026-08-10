@@ -22,3 +22,7 @@ func Provider(credential string, hc *http.Client) *TwitterAPI {
 // CredentialEnvVar names the enclave environment variable holding the provider
 // credential. It is read from the environment, never from instruction data.
 const CredentialEnvVar = "SOURCE_API_KEY"
+
+// ProviderName identifies the pinned provider in GET /state, so an operator can
+// see which source a running enclave was built against without reading its hash.
+const ProviderName = "twitterapi.io"

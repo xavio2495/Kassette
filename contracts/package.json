@@ -1,0 +1,32 @@
+{
+  "name": "kassette-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Kassette Coston2 contracts — FTSO mark proofs, FDC post attestation, TEE result verification",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "lint:sol": "solhint \"contracts/**/*.sol\"",
+    "format:check": "prettier --check \"contracts/**/*.sol\" \"scripts/**/*.ts\"",
+    "format:fix": "prettier --write \"contracts/**/*.sol\" \"scripts/**/*.ts\""
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@types/chai": "^4.2.0",
+    "@types/mocha": ">=9.1.0",
+    "@types/node": ">=18.0.0",
+    "chai": "^4.2.0",
+    "dotenv": "^16.4.7",
+    "hardhat": "^2.22.18",
+    "prettier": "^3.6.2",
+    "prettier-plugin-solidity": "^1.4.2",
+    "solhint": "^4.5.2",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.4.5"
+  },
+  "dependencies": {
+    "@flarenetwork/flare-periphery-contracts": "0.1.37",
+    "@openzeppelin/contracts": "^5.2.0",
+    "ethers": "^6.4.0"
+  }
+}

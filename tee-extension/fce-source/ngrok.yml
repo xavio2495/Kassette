@@ -1,0 +1,33 @@
+# ngrok agent config for Kassette's FCE-A proxy tunnel.
+#
+# ⛔ Deliberately holds NO authtoken, and is never installed into ~/.config/ngrok.
+#
+# That directory is Gestalt's: ngrok.yml and margin.yml carry the authtoken for its
+# account and back its two registered FCEs. `ngrok config add-authtoken` rewrites the
+# default file in place, so running it here would replace Gestalt's credential with
+# Kassette's — the two are separate accounts. Kassette's token comes from the repo-root
+# .env as NGROK_AUTHTOKEN, which the agent reads natively and which takes precedence
+# over any config file, so nothing global is read or written. Always pass --config.
+#
+#   ./tee-extension/fce-source/start-tunnel.sh
+#
+version: "3"
+
+agent:
+  # 4040 is ngrok's default agent API port and is what a Gestalt agent would take.
+  # Distinct here so both accounts' agents can run at once.
+  web_addr: localhost:4041
+
+tunnels:
+  ext-proxy:
+    proto: http
+    # The scaffold's external proxy port for Kassette — EXT_PROXY_EXTERNAL_BIND in
+    # infra/fce-extension-scaffold/.env. Gestalt's is 6674; do not converge them.
+    addr: 6684
+    # Reserved domain on Kassette's own ngrok account (rd_3HJlmyocDCfjsXPwB55qzwYo8iQ).
+    #
+    # ⚠️ This hostname is written ON-CHAIN at machine registration and is not
+    # updatable in place. A quick tunnel — or any changed hostname — silently breaks
+    # instruction delivery forever, which is why the domain is reserved rather than
+    # ephemeral. It must equal EXT_PROXY_URL in the scaffold .env, minus the scheme.
+    domain: unexposed-mountain-sushi.ngrok-free.dev

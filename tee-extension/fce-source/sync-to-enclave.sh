@@ -76,10 +76,32 @@ copy_overlay() {
 
 # The scaffold module must require and replace ours. Idempotent: `go mod edit`
 # rewrites an existing directive rather than appending a duplicate.
+#
+# ⚠️ The version must be the zero pseudo-version, not `v0.0.0`. Both resolve fine for
+# `go build` and `go mod download`, but `go mod verify` — which the enclave Dockerfile
+# runs — reads `v0.0.0` as a real released version and demands a module zip that a
+# filesystem-replaced module has never had:
+#
+#   kassette/fce-source v0.0.0: missing ziphash: open hash: no such file or directory
+#
+# The failure is at image build time only, so it is invisible to every local test.
+# `v0.0.0-00010101000000-000000000000` is what `go mod tidy` writes for a replaced
+# module, and verify skips it.
+#
+# ⚠️ The module path must also keep a dot in its first element. `kassette/fce-source`
+# builds and downloads fine, but `go mod verify` reports the same missing-ziphash error
+# for it no matter the version — a dotless first element is not a resolvable module path,
+# so verify does not treat it as replaced. Hence `github.com/xavio2495/...`. The on-disk
+# location stays ./kassette/fce-source; only the module path is domain-qualified.
+ZERO_PSEUDO_VERSION=v0.0.0-00010101000000-000000000000
+MODULE_PATH=github.com/xavio2495/kassette/fce-source
+
 wire_gomod() {
   ( cd "$GOROOT_DIR" \
-    && go mod edit -require=kassette/fce-source@v0.0.0 \
-                   -replace=kassette/fce-source=./kassette/fce-source )
+    && go mod edit -droprequire=kassette/fce-source \
+                   -dropreplace=kassette/fce-source \
+    && go mod edit -require="$MODULE_PATH@$ZERO_PSEUDO_VERSION" \
+                   -replace="$MODULE_PATH=./kassette/fce-source" )
 }
 
 if [ "${1:-}" = "--check" ]; then
@@ -101,7 +123,7 @@ if [ "${1:-}" = "--check" ]; then
     fi
   done < <(overlay_files)
 
-  if ! grep -q 'kassette/fce-source => ./kassette/fce-source' "$GOROOT_DIR/go.mod" 2>/dev/null; then
+  if ! grep -q "$MODULE_PATH => ./kassette/fce-source" "$GOROOT_DIR/go.mod" 2>/dev/null; then
     echo "error: scaffold go.mod is missing the replace directive" >&2
     stale=1
   fi

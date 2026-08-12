@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"kassette/fce-source/pkg/attest"
+	"github.com/xavio2495/kassette/fce-source/pkg/attest"
 )
 
 type stubFetcher struct {

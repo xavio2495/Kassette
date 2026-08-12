@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"kassette/fce-source/pkg/attest"
+	"github.com/xavio2495/kassette/fce-source/pkg/attest"
 )
 
 // Pinned by the build. Changing either is a code-hash change, which is the point:

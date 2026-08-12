@@ -2,7 +2,7 @@
 // Go extension, the InstructionSender contract, and the E2E test payloads.
 //
 // Public rather than internal/ on purpose: the scaffold is a separate Go module,
-// and Go forbids it importing kassette/fce-source/internal/... — so a single
+// and Go forbids it importing github.com/xavio2495/kassette/fce-source/internal/... — so a single
 // definition shared by both halves of the build has to live out here.
 package opcodes
 

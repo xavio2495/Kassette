@@ -9,8 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"kassette/fce-source/pkg/attest"
-	"kassette/fce-source/pkg/source"
+	"github.com/xavio2495/kassette/fce-source/pkg/attest"
+	"github.com/xavio2495/kassette/fce-source/pkg/source"
 )
 
 // Request is the instruction payload. Both fields are public — they are emitted in
@@ -33,21 +33,38 @@ type Fetcher interface {
 // result for the TEE node to sign. Any error means no signature is produced:
 // refusing to sign is the enclave's only way to say "I could not verify this".
 func Handle(ctx context.Context, f Fetcher, message []byte) ([]byte, error) {
+	req, callID, err := decodeRequest(message)
+	if err != nil {
+		return nil, err
+	}
+	return fetchAndEncode(ctx, f, req, callID)
+}
+
+// decodeRequest parses and validates an instruction without touching the network,
+// so a malformed request can be refused immediately. Split out from Handle because
+// the deferred path has to reject bad input on the first call, before it commits a
+// goroutine and a cache slot to it.
+func decodeRequest(message []byte) (Request, [32]byte, error) {
 	var req Request
+	var callID [32]byte
+
 	dec := json.NewDecoder(bytes.NewReader(message))
 	// Strict, following Cifra's score handler: an unrecognised field means the
 	// caller and the enclave disagree about the request, and guessing which of
 	// them is right is exactly the wrong move inside something that signs.
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
-		return nil, fmt.Errorf("decoding instruction: %w", err)
+		return req, callID, fmt.Errorf("decoding instruction: %w", err)
 	}
 
 	callID, err := attest.ParseCallID(req.CallID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid callId: %w", err)
+		return req, callID, fmt.Errorf("invalid callId: %w", err)
 	}
+	return req, callID, nil
+}
 
+func fetchAndEncode(ctx context.Context, f Fetcher, req Request, callID [32]byte) ([]byte, error) {
 	post, err := f.Fetch(ctx, req.PostID)
 	if err != nil {
 		return nil, fmt.Errorf("fetching post: %w", err)

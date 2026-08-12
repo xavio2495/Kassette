@@ -1,5 +1,9 @@
 {
   "ftsoV2": "0xC4e9c78EA53db782E28f28Fdf80BaF59336B304d",
   "KassetteMarkRegistry": "0xd98cE3D6740e26Bb448c1619dD21ABd6cDE410BE",
-  "deployedAt": "2026-08-08T18:22:35.298Z"
+  "deployedAt": "2026-08-08T18:22:35.298Z",
+  "flareTeeManager": "0x1a9C4A0f9D76c0b1D91d22E24E573a9b377618aE",
+  "extensionId": "66172",
+  "KassetteAttestationRegistry": "0x0244b8cA354b3129d9E44d940771409ef3c7dCd2",
+  "attestationRegistryDeployedAt": "2026-08-12T17:37:00.092Z"
 }

@@ -53,9 +53,17 @@ copy_module() {
   done
 }
 
-# The overlay maps 1:1 onto the scaffold's go/ tree.
+# The overlay maps 1:1 onto the scaffold *root*, not onto go/ — it has to carry
+# contracts/InstructionSender.sol and the tools/ driver alongside the enclave
+# packages. Those two are outside the code hash (they deploy and drive the
+# extension rather than run inside it), but the opType/opCommand bytes32 in the
+# contract must match pkg/opcodes byte-for-byte or instructions are silently
+# undeliverable, so they are tracked here for the same reason the glue is.
+#
+# Any file type, not just *.go: the contract is Solidity. README.md is the one
+# exclusion — it documents the overlay rather than belonging to the scaffold.
 overlay_files() {
-  ( cd "$OVERLAY" && find . -type f -name '*.go' -print )
+  ( cd "$OVERLAY" && find . -type f ! -name 'README.md' -print )
 }
 
 copy_overlay() {
@@ -87,7 +95,7 @@ if [ "${1:-}" = "--check" ]; then
   fi
 
   while read -r f; do
-    if ! diff -q "$OVERLAY/$f" "$GOROOT_DIR/$f" >/dev/null 2>&1; then
+    if ! diff -q "$OVERLAY/$f" "$SCAFFOLD/$f" >/dev/null 2>&1; then
       echo "error: overlay file is stale: ${f#./}" >&2
       stale=1
     fi
@@ -107,7 +115,7 @@ if [ "${1:-}" = "--check" ]; then
 fi
 
 copy_module "$DEST"
-copy_overlay "$GOROOT_DIR"
+copy_overlay "$SCAFFOLD"
 wire_gomod
 echo "sync-to-enclave: synced module ($(cd "$SRC" && find . -name '*.go' -not -path './_scaffold-overlay/*' | wc -l) files)" \
-     "+ overlay ($(overlay_files | wc -l) files) -> infra/fce-extension-scaffold/go"
+     "+ overlay ($(overlay_files | wc -l) files) -> infra/fce-extension-scaffold"

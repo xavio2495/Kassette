@@ -1,0 +1,81 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no
+    ports:
+      - "${REDIS_BIND:-127.0.0.1:6382}:6379"
+    tmpfs:
+      - /data
+
+  ext-proxy:
+    image: ${REGISTRY:-local}/tee-proxy
+    volumes:
+      - ./config/proxy/extension_proxy.docker.toml:/app/config/config.toml:ro
+    environment:
+      - PROXY_PRIVATE_KEY=${PROXY_PRIVATE_KEY:-983760a4ebf75b2ac3a93531168a0f225d01e5dc6e3568adbd46233ba1fb4fa4}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${EXT_PROXY_INTERNAL_BIND:-0.0.0.0:6673}:6663"
+      - "${EXT_PROXY_EXTERNAL_BIND:-0.0.0.0:6674}:6664"
+    depends_on:
+      - redis
+
+  extension-tee:
+    build:
+      context: .
+      # Selected by LANGUAGE in .env; start-services.sh resolves <LANGUAGE>/Dockerfile
+      # by directory convention. Adding a language needs no change here.
+      dockerfile: ${EXTENSION_DOCKERFILE:-go/Dockerfile}
+      args:
+        SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH:-0}
+        # Consumed by language images that build tee-node from source. A Go
+        # pseudo-version pin is a commit SHA, not a tag — see scripts/lib/versions.sh.
+        TEE_NODE_REF: ${TEE_NODE_REF:-}
+    env_file:
+      - path: ./config/extension.env
+        required: false
+    environment:
+      # ⛔ No default, deliberately — upstream ships `${MODE:-1}`, which hands a *simulated*
+      # enclave to anyone who forgets the variable, mistypes it, or sources the wrong .env.
+      # A silently simulated enclave is indistinguishable from an attested one at runtime: it
+      # registers, routes and signs identically, so the failure surfaces only as a claim in the
+      # demo that turns out to be false. Kassette's entire pitch is "this exact code ran", so
+      # this is the one question the stack must state out loud rather than assume.
+      # (Adopted from Gestalt, which hit this first.)
+      - MODE=${MODE:?set MODE explicitly - 0 for production attestation, 1 for simulated}
+      # Chain id the node binds signatures to — must match the proxy's chain_id
+      # and the chain itself. Local e2e Hardhat = 31337; the coston/coston2
+      # overrides set 16/114 for those networks.
+      - CHAIN_ID=${CHAIN_ID:-31337}
+      - INITIAL_OWNER=${INITIAL_OWNER:-0xF4E021377420Afe90c1A7D2b8968904946633a64}
+      # TEE governance the node signs with. Must match what set-governance
+      # registers on-chain (post-build reads the same vars). Defaults to the
+      # deployer (INITIAL_OWNER) as sole signer, threshold 1; override in .env.
+      - GOVERNANCE_SIGNERS=${GOVERNANCE_SIGNERS:-${INITIAL_OWNER:-0xF4E021377420Afe90c1A7D2b8968904946633a64}}
+      - GOVERNANCE_THRESHOLD=${GOVERNANCE_THRESHOLD:-1}
+      - PROXY_URL=http://ext-proxy:6663
+      - CONFIG_PORT=5501
+      - SIGN_PORT=7701
+      - EXTENSION_PORT=7702
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # FCE-A's provider credential, from .env rather than config/extension.env: pre-build.sh
+      # regenerates that file (and refuses to re-run once it exists), so a key appended there
+      # is lost on the next run. A runtime env var, so it is not baked into the image and does
+      # not enter the code hash — which is the point of fetching inside the enclave at all.
+      #
+      # Left empty-able on purpose, matching internal/extension.New(): a missing key surfaces
+      # as a refusal at fetch time rather than a container that will not start, so the stack
+      # can be brought up to test plumbing before the credential is in place.
+      - SOURCE_API_KEY=${SOURCE_API_KEY:-}
+      # Same rule, same reason. These two must also agree with each other — MODE=1 with
+      # SIMULATED_TEE=false (or the reverse) fails registration with "code hashes do not
+      # match", which reads like a build problem and is not one. See claude-docs/ERRORS.md §1.
+      - SIMULATED_TEE=${SIMULATED_TEE:?set SIMULATED_TEE explicitly - true with MODE=1, false with MODE=0}
+    depends_on:
+      - ext-proxy
+
+networks:
+  default:
+    name: ${COMPOSE_NETWORK:-docker_default}
+    external: true

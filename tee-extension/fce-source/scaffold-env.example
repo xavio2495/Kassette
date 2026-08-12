@@ -1,0 +1,80 @@
+# Template for infra/fce-extension-scaffold/.env — Kassette FCE-A on Coston2.
+#
+# The scaffold is an upstream clone and gitignored, so its .env is untracked and its
+# secrets stay out of the repo. This template is tracked because three of the values
+# below are not preferences — they are the difference between Kassette's stack coming
+# up and Kassette's stack destroying Gestalt's registered FCE. See §1 below.
+#
+#   cp tee-extension/fce-source/scaffold-env.example infra/fce-extension-scaffold/.env
+#   # then fill DEPLOYMENT_PRIVATE_KEY, INITIAL_OWNER, SOURCE_API_KEY, EXT_PROXY_URL
+#
+# ---------------------------------------------------------------------------------
+# §1 ⛔ Isolation from Gestalt — do not remove, do not "simplify"
+# ---------------------------------------------------------------------------------
+# Gestalt keeps its scaffold at the same relative path (infra/fce-extension-scaffold),
+# so Docker Compose derives the SAME default project name for both. Without the three
+# settings below, `docker compose up` from Kassette adopts and replaces Gestalt's
+# containers — taking down a registered FCE whose proxy hostname is written on-chain,
+# and which cannot simply be restarted into place.
+#
+# COMPOSE_PROJECT_NAME keeps the container set separate.
+# COMPOSE_NETWORK keeps service-name DNS separate: the base compose joins an *external*
+#   network, and both stacks name their services `redis` / `ext-proxy` / `extension-tee`.
+#   Sharing one network makes `http://ext-proxy:6663` resolve to either project's proxy.
+#   Create it once:  docker network create kassette-fce-source
+# The three *_BIND ports keep the host bindings off Gestalt's 6673 / 6674 / 6382.
+COMPOSE_PROJECT_NAME=kassette-fce-source
+COMPOSE_NETWORK=kassette-fce-source
+EXT_PROXY_INTERNAL_BIND=0.0.0.0:6683
+EXT_PROXY_EXTERNAL_BIND=0.0.0.0:6684
+REDIS_BIND=127.0.0.1:6383
+
+# ---------------------------------------------------------------------------------
+# §2 Network — Coston2 only (HANDOFF.md §2.1)
+# ---------------------------------------------------------------------------------
+CHAIN=coston2
+CHAIN_ID=114
+CHAIN_URL=https://coston2-api.flare.network/ext/C/rpc
+ADDRESSES_FILE=./config/coston2/deployed-addresses.json
+NORMAL_PROXY_URL=https://tee-proxy-coston2-1.flare.rocks
+LOCAL_MODE=false
+
+# ---------------------------------------------------------------------------------
+# §3 Attestation mode — both required, and they must agree
+# ---------------------------------------------------------------------------------
+# The overlaid docker-compose.yaml removes upstream's defaults for these two, so an
+# unset value stops the stack instead of quietly producing a simulated enclave.
+#
+# MODE=1 + SIMULATED_TEE=true   simulated; registers on Coston2 (ERRORS.md §1)
+# MODE=0 + SIMULATED_TEE=false  real attestation, needs a GCP Confidential VM
+#
+# Mismatched, registration fails with "code hashes do not match" — which reads like a
+# build error and is not one.
+MODE=1
+SIMULATED_TEE=true
+
+# ---------------------------------------------------------------------------------
+# §4 Identity and secrets — fill these in, never commit them
+# ---------------------------------------------------------------------------------
+LANGUAGE=go
+
+# The funded Coston2 deployer. Same pair as the repo-root .env (`address`/`private_key`).
+INITIAL_OWNER=
+DEPLOYMENT_PRIVATE_KEY=
+
+# Upstream's well-known Hardhat dev key. Signs proxy traffic only, holds nothing.
+PROXY_PRIVATE_KEY="983760a4ebf75b2ac3a93531168a0f225d01e5dc6e3568adbd46233ba1fb4fa4"
+
+# FCE-A's provider credential (twitterapi.io). The root .env keeps it as `x_api`.
+# This is the secret the enclave exists to hold: it is why the fetch happens in a TEE
+# rather than via FDC Web2Json, whose request headers are submitted on-chain in public.
+SOURCE_API_KEY=
+
+# ---------------------------------------------------------------------------------
+# §5 Tunnel — required only at registration
+# ---------------------------------------------------------------------------------
+# The proxy's public hostname is written on-chain at registration, so it has to be
+# reachable and stable. Blocked at time of writing: Gestalt holds the one free ngrok
+# reserved domain, and the Cloudflare named tunnel has no ingress without a zone.
+# Local work up to `pre-build.sh` does not need this.
+EXT_PROXY_URL=

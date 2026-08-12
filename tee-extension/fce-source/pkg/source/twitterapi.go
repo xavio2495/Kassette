@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"kassette/fce-source/pkg/attest"
+	"github.com/xavio2495/kassette/fce-source/pkg/attest"
 )
 
 // TwitterAPI fetches a post through twitterapi.io, the provider this build is

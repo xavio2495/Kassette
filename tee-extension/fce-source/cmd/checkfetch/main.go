@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"kassette/fce-source/pkg/attest"
-	"kassette/fce-source/pkg/handler"
-	"kassette/fce-source/pkg/source"
+	"github.com/xavio2495/kassette/fce-source/pkg/attest"
+	"github.com/xavio2495/kassette/fce-source/pkg/handler"
+	"github.com/xavio2495/kassette/fce-source/pkg/source"
 )
 
 func main() {

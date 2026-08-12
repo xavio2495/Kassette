@@ -1,4 +1,4 @@
-module kassette/fce-source
+module github.com/xavio2495/kassette/fce-source
 
 go 1.25.1
 

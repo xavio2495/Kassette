@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"extension-scaffold/internal/config"
 
@@ -16,12 +17,14 @@ import (
 	teetypes "github.com/flare-foundation/tee-node/pkg/types"
 	teeutils "github.com/flare-foundation/tee-node/pkg/utils"
 
-	"kassette/fce-source/pkg/attest"
+	"github.com/xavio2495/kassette/fce-source/pkg/attest"
+	"github.com/xavio2495/kassette/fce-source/pkg/handler"
 )
 
 // Replaces the scaffold's Hello World test. This layer is glue, so these tests
-// cover only routing and bookkeeping — what gets committed to and what gets
-// refused is tested in the module (pkg/attest, pkg/source, pkg/handler).
+// cover only routing, the two-instruction flow, and bookkeeping — what gets
+// committed to and what gets refused is tested in the module (pkg/attest,
+// pkg/source, pkg/handler).
 
 func toHash(s string) common.Hash { return teeutils.ToHash(s) }
 
@@ -43,7 +46,7 @@ func buildTestAction(opType, opCommand common.Hash, originalMessage []byte) teet
 	return teetypes.Action{
 		Data: teetypes.ActionData{
 			ID:            common.HexToHash("0x1234"),
-			SubmissionTag: "submit",
+			SubmissionTag: teetypes.Threshold,
 			Message:       msg,
 		},
 	}
@@ -56,6 +59,10 @@ type stubFetcher struct {
 
 func (s stubFetcher) Fetch(_ context.Context, postID string) (attest.Post, error) {
 	return s.post, s.err
+}
+
+func newExtension(f handler.Fetcher) *Extension {
+	return &Extension{cache: handler.NewCache(f)}
 }
 
 func goodPost() attest.Post {
@@ -72,9 +79,41 @@ func fetchMessage() []byte {
 	return b
 }
 
+// fetchPost drives one delivery and returns the decoded ActionResult.
+func fetchPost(t *testing.T, e *Extension) (int, teetypes.ActionResult) {
+	t.Helper()
+	status, body := e.processAction(
+		buildTestAction(toHash(config.OPTypeSource), toHash(config.OPCommandFetch), fetchMessage()))
+	var ar teetypes.ActionResult
+	if status == http.StatusOK {
+		if err := json.Unmarshal(body, &ar); err != nil {
+			t.Fatalf("decoding result: %v (body %s)", err, body)
+		}
+	}
+	return status, ar
+}
+
+// collect re-sends the instruction until the enclave reaches a terminal status, the
+// way a real caller does. The fetch runs in a goroutine, so a single immediate retry
+// would race it.
+func collect(t *testing.T, e *Extension) teetypes.ActionResult {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		_, ar := fetchPost(t, e)
+		if ar.Status != handler.StatusDeferred {
+			return ar
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("no terminal status within 3s")
+	return teetypes.ActionResult{}
+}
+
 func TestProcessAction_UnknownOPType(t *testing.T) {
-	e := &Extension{fetcher: stubFetcher{post: goodPost()}}
-	status, body := e.processAction(buildTestAction(toHash("SOMETHING_ELSE"), toHash(config.OPCommandFetch), fetchMessage()))
+	e := newExtension(stubFetcher{post: goodPost()})
+	status, body := e.processAction(
+		buildTestAction(toHash("SOMETHING_ELSE"), toHash(config.OPCommandFetch), fetchMessage()))
 
 	if status != http.StatusNotImplemented {
 		t.Fatalf("expected 501, got %d", status)
@@ -87,8 +126,9 @@ func TestProcessAction_UnknownOPType(t *testing.T) {
 // The reserved-name trap makes a wrong command silently undeliverable upstream,
 // so the extension must at least be loud about one it does not recognise.
 func TestProcessAction_UnknownOPCommand(t *testing.T) {
-	e := &Extension{fetcher: stubFetcher{post: goodPost()}}
-	status, body := e.processAction(buildTestAction(toHash(config.OPTypeSource), toHash("ATTEST"), fetchMessage()))
+	e := newExtension(stubFetcher{post: goodPost()})
+	status, body := e.processAction(
+		buildTestAction(toHash(config.OPTypeSource), toHash("ATTEST"), fetchMessage()))
 
 	if status != http.StatusNotImplemented {
 		t.Fatalf("expected 501, got %d", status)
@@ -98,20 +138,37 @@ func TestProcessAction_UnknownOPCommand(t *testing.T) {
 	}
 }
 
-func TestProcessAction_FetchPostSucceeds(t *testing.T) {
-	e := &Extension{fetcher: stubFetcher{post: goodPost()}}
-	status, body := e.processAction(buildTestAction(toHash(config.OPTypeSource), toHash(config.OPCommandFetch), fetchMessage()))
+// The priming instruction must answer "deferred" and carry nothing. Answering with a
+// result here would mean the fetch ran inline, which is what blew tee-node's 2s
+// ProxyTimeout on Coston2 and produced no attestation at all.
+func TestProcessAction_FirstInstructionDefers(t *testing.T) {
+	e := newExtension(stubFetcher{post: goodPost()})
 
+	status, ar := fetchPost(t, e)
 	if status != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", status, body)
+		t.Fatalf("expected 200, got %d", status)
+	}
+	if ar.Status != handler.StatusDeferred {
+		t.Fatalf("expected deferred status %d, got %d (%s)", handler.StatusDeferred, ar.Status, ar.Log)
+	}
+	if len(ar.Data) != 0 {
+		t.Errorf("a deferred result must carry no data, got %d bytes", len(ar.Data))
+	}
+	if e.attestationsServed != 0 {
+		t.Error("nothing has been attested yet at the priming instruction")
+	}
+}
+
+func TestProcessAction_SecondInstructionReturnsAttestation(t *testing.T) {
+	e := newExtension(stubFetcher{post: goodPost()})
+
+	if _, ar := fetchPost(t, e); ar.Status != handler.StatusDeferred {
+		t.Fatalf("priming: status %d (%s)", ar.Status, ar.Log)
 	}
 
-	var ar teetypes.ActionResult
-	if err := json.Unmarshal(body, &ar); err != nil {
-		t.Fatal(err)
-	}
-	if ar.Status != 1 {
-		t.Fatalf("expected success status 1, got %d (%s)", ar.Status, ar.Log)
+	ar := collect(t, e)
+	if ar.Status != handler.StatusComplete {
+		t.Fatalf("expected success status %d, got %d (%s)", handler.StatusComplete, ar.Status, ar.Log)
 	}
 	if len(ar.Data) != 192 {
 		t.Fatalf("expected a 6-word result, got %d bytes", len(ar.Data))
@@ -128,19 +185,19 @@ func TestProcessAction_FetchPostSucceeds(t *testing.T) {
 
 // A refusal must come back as status 0 with no data — never a partial result.
 func TestProcessAction_FetchFailureRefusesToSign(t *testing.T) {
-	e := &Extension{fetcher: stubFetcher{err: errors.New("post not found")}}
-	status, body := e.processAction(buildTestAction(toHash(config.OPTypeSource), toHash(config.OPCommandFetch), fetchMessage()))
+	e := newExtension(stubFetcher{err: errors.New("post not found")})
 
-	if status != http.StatusOK {
-		t.Fatalf("expected the envelope to be 200, got %d", status)
-	}
-	var ar teetypes.ActionResult
-	_ = json.Unmarshal(body, &ar)
-	if ar.Status != 0 {
-		t.Fatalf("expected refusal status 0, got %d", ar.Status)
+	fetchPost(t, e)
+	ar := collect(t, e)
+
+	if ar.Status != handler.StatusRefused {
+		t.Fatalf("expected refusal status %d, got %d", handler.StatusRefused, ar.Status)
 	}
 	if len(ar.Data) != 0 {
 		t.Errorf("a refusal must carry no data, got %d bytes", len(ar.Data))
+	}
+	if !strings.Contains(ar.Log, "post not found") {
+		t.Errorf("the fetch failure should survive into the log, got %q", ar.Log)
 	}
 	if e.attestationsServed != 0 {
 		t.Error("a refused attestation must not be counted")
@@ -148,8 +205,9 @@ func TestProcessAction_FetchFailureRefusesToSign(t *testing.T) {
 }
 
 func TestStateReportsProgressWithoutPostContent(t *testing.T) {
-	e := &Extension{fetcher: stubFetcher{post: goodPost()}}
-	e.processAction(buildTestAction(toHash(config.OPTypeSource), toHash(config.OPCommandFetch), fetchMessage()))
+	e := newExtension(stubFetcher{post: goodPost()})
+	fetchPost(t, e)
+	collect(t, e)
 
 	rec := httptest.NewRecorder()
 	e.stateHandler(rec, httptest.NewRequest(http.MethodGet, "/state", nil))

@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	kconfig "kassette/fce-source/pkg/opcodes"
+	kconfig "github.com/xavio2495/kassette/fce-source/pkg/opcodes"
 )
 
 const (

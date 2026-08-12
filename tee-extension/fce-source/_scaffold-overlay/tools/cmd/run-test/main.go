@@ -23,11 +23,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
+	teetypes "github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/pkg/errors"
 )
 
 // The attestation layout, asserted on the wire rather than imported from
-// kassette/fce-source/pkg/attest.
+// github.com/xavio2495/kassette/fce-source/pkg/attest.
 //
 // Upstream keeps this tool independent of any one language implementation
 // (docs/extension-contract.md), and that independence is worth more here than reuse:
@@ -38,6 +39,11 @@ const (
 	attestationWords = 6
 	attestationLen   = attestationWords * 32
 )
+
+// How long to wait between priming and collecting. The provider's measured
+// time-to-first-byte ranged 1.6-9.3s, so this leaves generous headroom; the enclave
+// bounds its own fetch at 30s.
+const collectDelay = 20 * time.Second
 
 var wordLabels = [attestationWords]string{
 	"callId", "postIdHash", "authorHash", "contentHash", "postedAt", "fetchedAt",
@@ -100,31 +106,84 @@ func main() {
 	}
 	logger.Infof("Instruction sent. ID: %s", instructionId.Hex())
 
-	// The enclave's fetch crosses the network to the source provider, so this waits
-	// longer than the Hello World path did — the extension bounds its own fetch at 25s.
-	time.Sleep(10 * time.Second)
+	if err := awaitStatus(*pf, instructionId, "priming"); err != nil {
+		fccutils.FatalWithCause(err)
+	}
 
-	if err := verifyAttestation(*pf, instructionId, callID); err != nil {
+	// The second instruction collects it. tee-node only calls the extension on the
+	// threshold submission and gives it 2s, so the fetch cannot be answered by the
+	// instruction that started it — see pkg/handler/deferred.go. A real consumer does
+	// exactly this: prime, wait, collect.
+	logger.Infof("Waiting %s for the enclave to finish fetching...", collectDelay)
+	time.Sleep(collectDelay)
+
+	logger.Infof("Sending collecting FETCH_POST instruction...")
+	collectId, _, err := instrutils.SendFetchPost(testSupport, instructionSenderAddress, payload)
+	if err != nil {
+		fccutils.FatalWithCause(err)
+	}
+	logger.Infof("Instruction sent. ID: %s", collectId.Hex())
+
+	result, err := awaitTerminal(*pf, collectId, 90*time.Second)
+	if err != nil {
+		fccutils.FatalWithCause(err)
+	}
+	if err := checkAttestation(*result, callID); err != nil {
 		fccutils.FatalWithCause(err)
 	}
 	logger.Infof("Test passed: FETCH_POST instruction processed and attestation layout verified")
 }
 
-func verifyAttestation(proxyURL string, instructionId common.Hash, wantCallID []byte) error {
-	// --- Generic: poll proxy for result (do not modify) ---
+// awaitStatus confirms the priming instruction was accepted at all. Deferred is the
+// expected answer; a refusal here is a real failure and its log is the useful part.
+func awaitStatus(proxyURL string, instructionId common.Hash, phase string) error {
 	actionResponse, err := fccutils.ActionResult(proxyURL, instructionId)
 	if err != nil {
-		return err
+		// A 404 here usually means the instruction was routed to a TEE machine that is
+		// registered but gone — see tools/cmd/pause-tee.
+		return errors.Errorf("%s instruction produced no result: %s", phase, err)
 	}
-	actionResult := actionResponse.Result
+	switch actionResponse.Result.Status {
+	case 0:
+		return errors.Errorf("enclave refused the %s instruction: %s", phase, actionResponse.Result.Log)
+	case 2:
+		logger.Infof("  %s accepted, enclave is fetching", phase)
+	default:
+		logger.Infof("  %s returned a result already (warm cache)", phase)
+	}
+	return nil
+}
 
+// awaitTerminal polls until the enclave reaches a terminal status.
+func awaitTerminal(proxyURL string, instructionId common.Hash, budget time.Duration) (*teetypes.ActionResult, error) {
+	deadline := time.Now().Add(budget)
+	var last uint8 = 2
+
+	for time.Now().Before(deadline) {
+		// --- Generic: poll proxy for result (do not modify) ---
+		actionResponse, err := fccutils.ActionResult(proxyURL, instructionId)
+		if err != nil {
+			logger.Infof("  result not available yet: %s", err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+
+		last = actionResponse.Result.Status
+		if last == 2 {
+			logger.Infof("  still deferred...")
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		return &actionResponse.Result, nil
+	}
+	return nil, errors.Errorf("no terminal result within %s (last status %d)", budget, last)
+}
+
+func checkAttestation(actionResult teetypes.ActionResult, wantCallID []byte) error {
 	if actionResult.Status == 0 {
 		// Status 0 is the enclave declining to sign — the log carries its reason, and
 		// that reason is the useful half of the failure, so surface it verbatim.
 		return errors.Errorf("enclave refused to attest: %s", actionResult.Log)
-	}
-	if actionResult.Status == 2 {
-		return errors.New("instruction still pending after polling, expected completed")
 	}
 
 	data := []byte(actionResult.Data)

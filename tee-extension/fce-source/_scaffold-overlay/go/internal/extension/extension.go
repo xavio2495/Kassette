@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"sync"
-	"time"
 
 	"extension-scaffold/internal/config"
 	"extension-scaffold/pkg/types"
@@ -19,16 +18,16 @@ import (
 
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 
-	"kassette/fce-source/pkg/attest"
-	"kassette/fce-source/pkg/handler"
-	"kassette/fce-source/pkg/source"
+	"github.com/xavio2495/kassette/fce-source/pkg/attest"
+	"github.com/xavio2495/kassette/fce-source/pkg/handler"
+	"github.com/xavio2495/kassette/fce-source/pkg/source"
 )
 
 // ⭐ This file is glue and nothing else.
 //
 // Every decision the attested code hash is supposed to commit to — which endpoint
 // is queried, what is committed to, what is refused — lives in the tracked module
-// under kassette/fce-source. This layer decodes the envelope, routes on
+// under github.com/xavio2495/kassette/fce-source. This layer decodes the envelope, routes on
 // (OPType, OPCommand), and calls handler.Handle. It decides nothing itself, so
 // reviewing what this enclave actually does means reading pkg/attest, pkg/source,
 // and pkg/handler — all of which are in version control and unit-tested.
@@ -39,7 +38,11 @@ type Extension struct {
 	mu     sync.RWMutex
 	Server *http.Server
 
-	fetcher handler.Fetcher
+	// FCE-A answers across two *instructions* rather than one, because a credentialed
+	// fetch does not fit in tee-node's 2s ProxyTimeout and the extension is only ever
+	// called on the threshold delivery. The cache that makes that work lives in the
+	// tracked module — see pkg/handler/deferred.go.
+	cache *handler.Cache
 
 	attestationsServed int
 	lastCallID         string
@@ -53,7 +56,7 @@ func New(extensionPort, signPort int) *Extension {
 		// instruction data. An unset key is not fatal here: it surfaces at fetch
 		// time as a refusal, so a misconfigured enclave fails loudly on use
 		// rather than starting up and silently attesting nothing.
-		fetcher: source.Provider(os.Getenv(source.CredentialEnvVar), nil),
+		cache: handler.NewCache(source.Provider(os.Getenv(source.CredentialEnvVar), nil)),
 	}
 
 	mux := http.NewServeMux()
@@ -118,21 +121,25 @@ func (e *Extension) processSource(action teetypes.Action, df *instruction.DataFi
 	}
 }
 
-// processFetchPost fetches the instructed post through the pinned provider and
-// returns the ABI-encoded attestation for the TEE node to sign.
+// processFetchPost hands the instruction to the request cache and returns whatever it
+// decides: "deferred" while the fetch runs, the ABI-encoded attestation once it is in,
+// or a refusal.
+//
+// The fetch is never performed inline. tee-node calls the extension only on the
+// threshold submission and allows it 2s (ProxyTimeout, a compile-time constant); the
+// provider's time-to-first-byte was measured at 1.6-9.3s. So the first instruction for a
+// call primes the fetch and a later one collects it — see pkg/handler/deferred.go.
 //
 // Status 0 means the enclave declined to produce a result, and that is the only
 // way it can express doubt: a refusal is safe, whereas a signature over a post it
 // could not verify would be worse than no attestation at all.
 func (e *Extension) processFetchPost(action teetypes.Action, df *instruction.DataFixed) teetypes.ActionResult {
-	// The fetch crosses the network; bound it so a hung provider cannot pin the
-	// single-threaded action loop indefinitely.
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
-
-	data, err := handler.Handle(ctx, e.fetcher, df.OriginalMessage)
+	data, status, err := e.cache.Handle(context.Background(), df.OriginalMessage)
 	if err != nil {
-		return buildResult(action, df, nil, 0, err)
+		return buildResult(action, df, nil, status, err)
+	}
+	if status != handler.StatusComplete {
+		return buildResult(action, df, data, status, nil)
 	}
 
 	// Bookkeeping only — read back from the ABI-encoded result rather than
@@ -143,5 +150,5 @@ func (e *Extension) processFetchPost(action teetypes.Action, df *instruction.Dat
 	e.lastFetchedAt = attest.DecodeWord64(data[160:192])
 	e.mu.Unlock()
 
-	return buildResult(action, df, data, 1, nil)
+	return buildResult(action, df, data, status, nil)
 }

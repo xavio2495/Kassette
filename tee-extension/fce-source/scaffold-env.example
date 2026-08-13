@@ -22,12 +22,29 @@
 #   network, and both stacks name their services `redis` / `ext-proxy` / `extension-tee`.
 #   Sharing one network makes `http://ext-proxy:6663` resolve to either project's proxy.
 #   Create it once:  docker network create kassette-fce-source
-# The three *_BIND ports keep the host bindings off Gestalt's 6673 / 6674 / 6382.
+# The three *_BIND ports keep the host bindings off every other stack on this machine.
+#
+# ⚠️ Four stacks now share this machine, and the map below is the whole agreement:
+#
+#   Gestalt coston2    6673 / 6674 / 6382
+#   Gestalt margin     6683 / 6684 / 6383
+#   Kassette FCE-A     6703 / 6704 / 6385   <- this file
+#   Kassette FCE-B     6693 / 6694 / 6384
+#
+# FCE-A moved off 6683/6684/6383 on 2026-08-13 because Gestalt's margin stack had taken
+# them while Kassette was down. Moving Kassette rather than Gestalt was the safe direction:
+# a running registered FCE is not something to repoint from another repo.
+#
+# ⚠️ The on-chain machine URL is unaffected by this. Registration stores the *hostname*
+# (unexposed-mountain-sushi.ngrok-free.dev), and only the local port the tunnel forwards to
+# changed — so ngrok.yml `addr` and start-tunnel.sh PORT move with it, and no
+# re-registration is needed. (Were the hostname itself to change, the scaffold ships
+# scripts/update-tee-url.sh, which repoints it in one transaction with no re-attestation.)
 COMPOSE_PROJECT_NAME=kassette-fce-source
 COMPOSE_NETWORK=kassette-fce-source
-EXT_PROXY_INTERNAL_BIND=0.0.0.0:6683
-EXT_PROXY_EXTERNAL_BIND=0.0.0.0:6684
-REDIS_BIND=127.0.0.1:6383
+EXT_PROXY_INTERNAL_BIND=0.0.0.0:6703
+EXT_PROXY_EXTERNAL_BIND=0.0.0.0:6704
+REDIS_BIND=127.0.0.1:6385
 
 # ---------------------------------------------------------------------------------
 # §2 Network — Coston2 only (HANDOFF.md §2.1)

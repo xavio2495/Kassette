@@ -16,9 +16,12 @@
 # points at ngrok.yml here, which holds the tunnel definition and no credential.
 # Nothing under ~/.config/ngrok is read or written.
 #
-# ⚠️ The hostname is written ON-CHAIN at machine registration and cannot be changed
-# afterwards. It is a reserved domain, not a quick tunnel, for exactly that reason —
-# see ngrok.yml.
+# ⚠️ The hostname is written ON-CHAIN at machine registration. It can be repointed with
+# the scaffold's scripts/update-tee-url.sh, but an *ephemeral* hostname breaks delivery on
+# every agent restart — so it is a reserved domain, not a quick tunnel. See ngrok.yml.
+#
+# The local PORT below is free to change without touching the chain: registration stores
+# the hostname, not the port. It moved 6684 -> 6704 on 2026-08-13 (see scaffold-env.example).
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,7 +29,7 @@ ROOT="$(cd "$SRC/../.." && pwd)"
 CONFIG="$SRC/ngrok.yml"
 TUNNEL=ext-proxy
 DOMAIN=unexposed-mountain-sushi.ngrok-free.dev
-PORT=6684
+PORT=6704
 
 [ -f "$CONFIG" ] || { echo "error: $CONFIG not found" >&2; exit 1; }
 

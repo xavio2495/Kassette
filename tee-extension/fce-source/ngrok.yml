@@ -21,13 +21,23 @@ agent:
 tunnels:
   ext-proxy:
     proto: http
-    # The scaffold's external proxy port for Kassette — EXT_PROXY_EXTERNAL_BIND in
-    # infra/fce-extension-scaffold/.env. Gestalt's is 6674; do not converge them.
-    addr: 6684
+    # The scaffold's external proxy port for FCE-A — EXT_PROXY_EXTERNAL_BIND in
+    # infra/fce-extension-scaffold/.env. The two must agree; start-tunnel.sh checks.
+    #
+    # ⚠️ Moved 6684 -> 6704 on 2026-08-13: Gestalt's margin stack had taken 6684 while
+    # Kassette was down, and its tunnel was already serving it. Other stacks: Gestalt
+    # coston2 6674, Gestalt margin 6684, Kassette FCE-B 6694.
+    #
+    # Changing this port does NOT require re-registration — the on-chain machine record
+    # stores the hostname below, not the local port.
+    addr: 6704
     # Reserved domain on Kassette's own ngrok account (rd_3HJlmyocDCfjsXPwB55qzwYo8iQ).
     #
-    # ⚠️ This hostname is written ON-CHAIN at machine registration and is not
-    # updatable in place. A quick tunnel — or any changed hostname — silently breaks
-    # instruction delivery forever, which is why the domain is reserved rather than
-    # ephemeral. It must equal EXT_PROXY_URL in the scaffold .env, minus the scheme.
+    # ⚠️ This hostname is written ON-CHAIN at machine registration. It CAN be repointed
+    # afterwards — the scaffold ships scripts/update-tee-url.sh, which calls
+    # MachineManager.updateTeeMachineSettings in one transaction with no re-attestation —
+    # but an *ephemeral* hostname still breaks delivery every time the agent restarts,
+    # which is why the domain is reserved rather than quick.
+    #
+    # It must equal EXT_PROXY_URL in the scaffold .env, minus the scheme.
     domain: unexposed-mountain-sushi.ngrok-free.dev

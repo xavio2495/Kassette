@@ -1,0 +1,44 @@
+# ngrok agent config for Kassette's FCE-B proxy tunnel.
+#
+# ⛔ Deliberately holds NO authtoken, and is never installed into ~/.config/ngrok.
+#
+# That directory is Gestalt's: ngrok.yml and margin.yml carry the authtoken for its
+# account and back its two registered FCEs. `ngrok config add-authtoken` rewrites the
+# default file in place, so running it here would replace Gestalt's credential.
+# Kassette's FCE-B token comes from the repo-root .env as NGROK_AUTHTOKEN_2, which the
+# agent reads natively and which takes precedence over any config file, so nothing
+# global is read or written. Always pass --config.
+#
+#   ./tee-extension/fce-extract/start-tunnel.sh
+#
+# ⚠️ FCE-B is on a SEPARATE ngrok account from FCE-A. The free plan allows one reserved
+# domain per account, and FCE-A holds Kassette's first
+# (unexposed-mountain-sushi.ngrok-free.dev). Do not cross the two tokens: signing in with
+# the wrong one makes the reserved domain unavailable and the agent falls back to an
+# ephemeral hostname, which is the one failure this file exists to prevent.
+version: "3"
+
+agent:
+  # 4040 is ngrok's default and is taken by a Gestalt agent; 4041 is reserved for
+  # Kassette FCE-A. FCE-B takes 4042 so all four agents can run at once.
+  web_addr: localhost:4042
+
+tunnels:
+  ext-proxy:
+    proto: http
+    # FCE-B's external proxy port — EXT_PROXY_EXTERNAL_BIND in
+    # infra/fce-extension-scaffold-extract/.env.
+    #
+    # Ports in use elsewhere: Gestalt coston2 6674, Gestalt margin 6684,
+    # Kassette FCE-A 6704.
+    addr: 6694
+    # Reserved domain on Kassette's second ngrok account (rd_3HrbPoMVP7xkPrqz4F3En3dgWCI).
+    #
+    # ⚠️ This hostname is written on-chain at machine registration. It CAN be repointed
+    # afterwards — the scaffold ships scripts/update-tee-url.sh, which calls
+    # MachineManager.updateTeeMachineSettings in one transaction with no re-attestation —
+    # but an *ephemeral* hostname still breaks delivery every time the agent restarts,
+    # which is why the domain is reserved rather than quick.
+    #
+    # It must equal EXT_PROXY_URL in the scaffold .env, minus the scheme.
+    domain: snuggle-humvee-polar.ngrok-free.dev

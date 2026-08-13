@@ -1,0 +1,106 @@
+# Template for infra/fce-extension-scaffold-extract/.env — Kassette FCE-B on Coston2.
+#
+# ⚠️ FCE-B needs its OWN scaffold clone, not a second .env inside FCE-A's. The scaffold
+# stores one extension identity per clone (config/extension.env, config/proxy/*.toml,
+# the deployed InstructionSender address), and pre-build.sh rewrites those in place. Two
+# extensions sharing one clone would overwrite each other's identity:
+#
+#   git clone https://github.com/flare-foundation/fce-extension-scaffold \
+#             infra/fce-extension-scaffold-extract
+#   cp tee-extension/fce-extract/scaffold-env.example \
+#      infra/fce-extension-scaffold-extract/.env
+#   # then fill DEPLOYMENT_PRIVATE_KEY, INITIAL_OWNER, EXTRACT_API_KEY, EXT_PROXY_URL
+#
+# ---------------------------------------------------------------------------------
+# §1 ⛔ Isolation — this is the THIRD stack on this machine
+# ---------------------------------------------------------------------------------
+# Gestalt runs two FCEs, Kassette FCE-A runs a third, and this is a fourth stack. All
+# of them derive their Compose project name from the scaffold directory, and all name
+# their services `redis` / `ext-proxy` / `extension-tee`. Without the settings below,
+# `docker compose up` adopts and replaces another project's containers — taking down a
+# registered FCE whose proxy hostname is written on-chain and cannot be moved.
+#
+# COMPOSE_NETWORK matters as much as the project name: the base compose joins an
+#   *external* network, so on a shared one `http://ext-proxy:6663` — which the TEE node
+#   uses to reach its own proxy — resolves to whichever project's proxy answers first.
+#   Create it once:  docker network create kassette-fce-extract
+#
+# Ports in use elsewhere, for reference:
+#   Gestalt coston2    6673 / 6674 / 6382
+#   Gestalt margin     6683 / 6684 / 6383
+#   Kassette FCE-A     6703 / 6704 / 6385   (moved off 6683/6684 on 2026-08-13)
+#   Kassette FCE-B     6693 / 6694 / 6384   <- this file
+COMPOSE_PROJECT_NAME=kassette-fce-extract
+COMPOSE_NETWORK=kassette-fce-extract
+EXT_PROXY_INTERNAL_BIND=0.0.0.0:6693
+EXT_PROXY_EXTERNAL_BIND=0.0.0.0:6694
+REDIS_BIND=127.0.0.1:6384
+
+# ---------------------------------------------------------------------------------
+# §2 Network — Coston2 only (HANDOFF.md §2.1)
+# ---------------------------------------------------------------------------------
+CHAIN=coston2
+CHAIN_ID=114
+CHAIN_URL=https://coston2-api.flare.network/ext/C/rpc
+ADDRESSES_FILE=./config/coston2/deployed-addresses.json
+NORMAL_PROXY_URL=https://tee-proxy-coston2-1.flare.rocks
+LOCAL_MODE=false
+
+# ---------------------------------------------------------------------------------
+# §3 Attestation mode — both required, and they must agree
+# ---------------------------------------------------------------------------------
+# MODE=1 + SIMULATED_TEE=true   simulated; registers on Coston2 (ERRORS.md §1)
+# MODE=0 + SIMULATED_TEE=false  real attestation, needs a GCP Confidential VM
+#
+# Mismatched, registration fails with "code hashes do not match" — which reads like a
+# build error and is not one.
+#
+# ⚠️ Under MODE=1 the code hash is a fixed test value that does NOT measure the image
+# (ERRORS.md §C). FCE-B's claim "this pinned model and prompt were used" is therefore
+# not established by the hash in this mode — which is exactly why the result echoes
+# modelHash explicitly rather than leaving it implied.
+MODE=1
+SIMULATED_TEE=true
+
+# ---------------------------------------------------------------------------------
+# §4 Identity and secrets — fill these in, never commit them
+# ---------------------------------------------------------------------------------
+LANGUAGE=go
+
+# The funded Coston2 deployer. Same pair as the repo-root .env (`address`/`private_key`).
+INITIAL_OWNER=
+DEPLOYMENT_PRIVATE_KEY=
+
+# Upstream's well-known Hardhat dev key. Signs proxy traffic only, holds nothing.
+PROXY_PRIVATE_KEY="983760a4ebf75b2ac3a93531168a0f225d01e5dc6e3568adbd46233ba1fb4fa4"
+
+# FCE-B's model credential — an OpenRouter API key (https://openrouter.ai/keys).
+# This is the secret the enclave exists to hold: FDC Web2Json cannot fetch a
+# credentialed endpoint because its request headers are submitted on-chain in public.
+#
+# Free-tier limits: 20 requests/minute, and 50/day unless the account has ever
+# purchased $10 in credits (then 1000/day). The pipeline must pace itself.
+EXTRACT_API_KEY=
+
+# ---------------------------------------------------------------------------------
+# §5 Tunnel — required only at registration
+# ---------------------------------------------------------------------------------
+# FCE-B has its own reserved domain on a SECOND ngrok account, because the free plan
+# allows one per account and FCE-A holds Kassette's first
+# (unexposed-mountain-sushi.ngrok-free.dev -> 6704). One tunnel cannot serve both: it
+# forwards to a single local port, the two proxies expose identical paths so nothing
+# distinguishes them, and each ext-proxy is bound to one EXTENSION_ID.
+#
+#   ./tee-extension/fce-extract/start-tunnel.sh
+#
+# ⚠️ Do not cross the two tokens: NGROK_AUTHTOKEN is FCE-A's, NGROK_AUTHTOKEN_2 is FCE-B's.
+# The wrong one makes the reserved domain unavailable and the agent silently falls back to
+# an ephemeral hostname. Agent API ports: Gestalt 4040, FCE-A 4041, FCE-B 4042.
+#
+# The hostname is written on-chain at registration, but it is NOT frozen: the scaffold
+# ships scripts/update-tee-url.sh, which repoints it in one transaction with no
+# re-attestation. What genuinely breaks delivery is an *ephemeral* hostname, which changes
+# on every agent restart — hence a reserved domain.
+#
+# Everything up to and including `pre-build.sh` works without this.
+EXT_PROXY_URL=https://snuggle-humvee-polar.ngrok-free.dev

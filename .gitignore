@@ -1,0 +1,30 @@
+# Secrets — the repo-root .env holds the funded Coston2 key and indexer creds.
+.env
+.env.*
+!.env.example
+
+node_modules/
+.DS_Store
+
+# Hardhat
+contracts/artifacts/
+contracts/cache/
+contracts/typechain-types/
+
+# Next.js
+web/.next/
+web/out/
+web/next-env.d.ts
+
+# Reference clones and vendored infra carry their own .git directories; they are
+# working copies for reading, not part of this repo's history.
+reference/
+infra/
+
+# Generated demo database — rebuilt from live FTSO data by `npm run seed -- --reset`.
+# Not tracked: it is derived, it is several hundred KB of binary, and its prices are
+# a snapshot of one moment that would go stale in the repo.
+web/kassette.db
+web/kassette.db-journal
+web/kassette.db-shm
+web/kassette.db-wal

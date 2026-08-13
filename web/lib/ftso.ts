@@ -81,11 +81,41 @@ export async function fspStatus(): Promise<FspStatus> {
   return { latestRound: json.latest_ftso.voting_round_id, latestStart: json.latest_ftso.start_timestamp };
 }
 
+// ⚠️ The public DA Layer is rate-limited without an API key, and the key is requested
+// by opening an issue on the dev-hub repo (claude-docs/ERRORS.md blocker 4) — not
+// something a build can do for itself. Until it arrives, a 429 is a normal condition
+// rather than an error: one markCall makes up to four requests here (entry, latest,
+// and both benchmark legs), so pricing a dossier of ten calls bursts ~forty and
+// reliably trips the limit partway through.
+//
+// Retrying is the honest fix and it belongs here rather than in each caller: a
+// caller that paced itself would still burst within a single markCall. Only 429 and
+// 5xx are retried — a 4xx means the request is wrong and repeating it just wastes
+// the very budget being conserved.
+export const ANCHOR_RETRIES = 5;
+
+function retryDelayMs(attempt: number, retryAfter: string | null): number {
+  const header = retryAfter ? Number(retryAfter) : NaN;
+  if (Number.isFinite(header) && header > 0) return Math.min(header * 1000, 30_000);
+  return Math.min(1000 * 2 ** attempt, 16_000); // 1s, 2s, 4s, 8s, 16s
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export async function anchorFeeds(feedIds: string[], votingRoundId?: number): Promise<{ body: AnchorFeed; proof: string[] }[]> {
   const url = `${DA_BASE}/api/v0/ftso/anchor-feeds-with-proof` + (votingRoundId != null ? `?voting_round_id=${votingRoundId}` : "");
-  const res = await fetch(url, { method: "POST", headers: headers(), body: JSON.stringify({ feed_ids: feedIds }) });
-  if (!res.ok) throw new Error(`anchor-feeds-with-proof ${res.status}`);
-  return res.json();
+
+  let lastStatus = 0;
+  for (let attempt = 0; attempt <= ANCHOR_RETRIES; attempt++) {
+    const res = await fetch(url, { method: "POST", headers: headers(), body: JSON.stringify({ feed_ids: feedIds }) });
+    if (res.ok) return res.json();
+
+    lastStatus = res.status;
+    const transient = res.status === 429 || res.status >= 500;
+    if (!transient || attempt === ANCHOR_RETRIES) break;
+    await sleep(retryDelayMs(attempt, res.headers.get("retry-after")));
+  }
+  throw new Error(`anchor-feeds-with-proof ${lastStatus}`);
 }
 
 // USD price of a feed at a past timestamp, with the proof that backs it.

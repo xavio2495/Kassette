@@ -1,5 +1,5 @@
 // SQLite via Node's built-in driver — no native module to compile, and the same
-// synchronous prepare().get()/.all()/.run() surface kollateral's queries were
+// synchronous prepare().get()/.all()/.run() surface the reference queries were
 // written against, so they port unchanged.
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";

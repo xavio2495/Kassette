@@ -9,12 +9,15 @@
     "lint": "eslint",
     "test": "vitest run",
     "seed": "tsx scripts/seed-demo.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "e2e": "tsx scripts/e2e.ts"
   },
   "dependencies": {
     "next": "16.3.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "recharts": "^3.10.1",
+    "viem": "^2.55.16"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -23,6 +26,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
+    "playwright": "^1.62.1",
     "tailwindcss": "^4",
     "tsx": "^4.23.11",
     "typescript": "^5",

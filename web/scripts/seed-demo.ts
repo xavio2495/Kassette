@@ -189,7 +189,7 @@ async function main() {
     const posted = (db.prepare("SELECT posted_at FROM posts WHERE id = ?").get(xrpLong.post_id) as { posted_at: number })
       .posted_at;
 
-    // `token_address` is carried over from kollateral's ERC-20 model. On Flare the
+    // `token_address` is carried over from the reference ERC-20 model. On Flare the
     // asset is identified by its FTSO feed, so the column holds the feed id — the
     // schema's UNIQUE (tx_hash, token_address, side) still does its job of stopping
     // one transfer being counted twice.
@@ -236,6 +236,45 @@ async function main() {
     );
     console.log(`attestation recorded for call ${xrpLong.id}`);
   }
+
+  // Demo executions, so /portfolio and /allocations render their populated states
+  // rather than only their empty ones.
+  //
+  // ⚠️ These are invented, exactly like the callers and the wallet event above,
+  // and they are the only rows in this database that describe an action a user
+  // supposedly took. Two rules keep that honest:
+  //   - `flare_tx_hash` is NULL and one row is left `pending`. Milestone 4 is not
+  //     wired, so no Payment was ever dispatched on Flare and claiming a Flare tx
+  //     would be the one fabrication the portfolio page cannot survive.
+  //   - the XRPL account is the documentation address from xrpl.org, not a real
+  //     account belonging to anyone.
+  const seededExecutions: [number, "copy" | "fade", "long" | "short", string, string | null][] = [
+    [1, "copy", "long", "20", "executed"],
+    [2, "copy", "long", "35", "executed"],
+    [6, "fade", "short", "10", "pending"],
+  ];
+  const DEMO_XRPL_ACCOUNT = "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh";
+  let seededCount = 0;
+  for (const [callId, mode, direction, amount, status] of seededExecutions) {
+    const exists = db.prepare("SELECT 1 FROM calls WHERE id = ?").get(callId);
+    if (!exists) continue;
+    db.prepare(
+      `INSERT INTO executions
+         (call_id, mode, xrpl_account, xrpl_tx_hash, direction, fxrp_amount, flare_tx_hash, status, created_at)
+       VALUES (?,?,?,?,?,?,NULL,?,?)`
+    ).run(
+      callId,
+      mode,
+      DEMO_XRPL_ACCOUNT,
+      `DEMO${String(callId).padStart(60, "0")}`,
+      direction,
+      amount,
+      status,
+      now - (4 - callId) * DAY
+    );
+    seededCount++;
+  }
+  console.log(`${seededCount} demo execution(s) recorded (no Flare tx — Milestone 4 is not wired)`);
 
   console.log("");
   for (const c of CALLERS) {

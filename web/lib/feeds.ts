@@ -12,7 +12,7 @@ export function feedId(pair: string, category = CATEGORY_CRYPTO): `0x${string}` 
   return `0x${body.padEnd(42, "0")}` as `0x${string}`;
 }
 
-// The benchmark every dossier is scored against. kollateral held ETH; a call on
+// The benchmark every dossier is scored against. The reference held ETH; a call on
 // XRP is scored against XRP/USD via the FAssets peg (IDEA.md §7).
 export const XRP_USD = feedId("XRP/USD");
 
@@ -28,7 +28,7 @@ export const FEEDS: Record<string, `0x${string}`> = {
 
 // Models emit the cashtag form ("$XRP") and stray whitespace; normalize before
 // lookup so extraction quirks don't read as an unpriceable asset.
-// Trim before stripping the cashtag: kollateral anchored `^\$` first, so a
+// Trim before stripping the cashtag: the reference anchored `^\$` first, so a
 // leading space left the `$` in place and the symbol read as unpriceable.
 export function normalizeSymbol(symbol: string): string {
   return symbol.trim().replace(/^\$/, "").trim().toUpperCase();

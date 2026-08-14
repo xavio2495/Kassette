@@ -1,4 +1,4 @@
-// The single price seam for the whole app (kollateral's lib/graph.ts, on Flare
+// The single price seam for the whole app (the reference's lib/graph.ts, on Flare
 // rails). Historical prices come from FTSO Scaling anchor feeds via the Data
 // Availability Layer, not from getFeedById — that returns only the current
 // value. Each anchor feed carries a Merkle proof verifiable on-chain with

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { CallLedger, applyFilter } from "../components/CallLedger";
-import { EquityCurve } from "../components/EquityCurve";
+import { buildEquityCurve } from "../lib/curve";
 import { SaidVsDid } from "../components/SaidVsDid";
 import type { DossierCall, SaidVsDid as SaidVsDidData } from "../lib/dossier";
 
@@ -40,7 +40,7 @@ const noop = () => {};
 
 describe("CallLedger", () => {
   it("renders a priced call with its return", () => {
-    const html = renderToStaticMarkup(<CallLedger calls={[call()]} filter="all" onSelect={noop} />);
+    const html = renderToStaticMarkup(<CallLedger calls={[call()]} filter="all" onSelect={noop} handle="demo" />);
     expect(html).toContain("XRP is heating up");
     expect(html).toContain("+50.00%");
     expect(html).toContain("$500");
@@ -55,14 +55,20 @@ describe("CallLedger", () => {
         calls={[call({ status: "unpriceable", entry: null, latest: null, retPct: null, pnlUsd: null })]}
         filter="all"
         onSelect={noop}
+        handle="demo"
       />
     );
     expect(html).toContain("—");
     expect(html).not.toContain("0.00%");
-    expect(html).toContain("⚠️");
+    expect(html).toContain("unpriceable");
   });
 
-  it("badges deleted, open, ambiguous and attested calls", () => {
+  // ⚠️ Asserting on the *word*, not the glyph. The 2026-08-13 browser pass found
+  // 🗑️ and ⏳ rendering as tofu where no emoji font is installed, which made those
+  // states invisible rather than merely ugly — so meaning may never rest on a
+  // glyph alone (NEXT_STEPS.md §5). A test that accepts an emoji would let that
+  // regression back in silently.
+  it("badges deleted, open, ambiguous and attested calls with text labels", () => {
     const html = renderToStaticMarkup(
       <CallLedger
         calls={[
@@ -73,15 +79,19 @@ describe("CallLedger", () => {
         ]}
         filter="all"
         onSelect={noop}
+        handle="demo"
       />
     );
-    expect(html).toContain("🗑️");
-    expect(html).toContain("⏳");
-    expect(html).toContain("✓");
+    expect(html).toContain("deleted");
+    expect(html).toContain("open");
+    expect(html).toContain("ambiguous");
+    expect(html).toContain("attested");
   });
 
   it("shows an empty state per filter rather than a blank table", () => {
-    const html = renderToStaticMarkup(<CallLedger calls={[call()]} filter="deleted" onSelect={noop} />);
+    const html = renderToStaticMarkup(
+      <CallLedger calls={[call()]} filter="deleted" onSelect={noop} handle="demo" />
+    );
     expect(html).toContain("No deleted calls");
   });
 });
@@ -102,38 +112,28 @@ describe("applyFilter", () => {
   });
 });
 
-describe("EquityCurve", () => {
-  it("plots only scored calls and says so", () => {
-    const html = renderToStaticMarkup(
-      <EquityCurve
-        calls={[
-          call({ id: 1, posted_at: 1_700_000_000, pnlUsd: 100, benchPnlUsd: 50 }),
-          call({ id: 2, posted_at: 1_700_100_000, pnlUsd: -30, benchPnlUsd: 10 }),
-          call({ id: 3, pnlUsd: null, benchPnlUsd: null, status: "unpriceable" }),
-        ]}
-      />
-    );
-    expect(html).toContain("<polyline");
-    expect(html).toContain("2 scored calls");
+describe("buildEquityCurve", () => {
+  it("accumulates only scored calls, in date order", () => {
+    const points = buildEquityCurve([
+      call({ id: 1, posted_at: 1_700_000_000, pnlUsd: 100, benchPnlUsd: 50 }),
+      call({ id: 2, posted_at: 1_700_100_000, pnlUsd: -30, benchPnlUsd: 10 }),
+      call({ id: 3, pnlUsd: null, benchPnlUsd: null, status: "unpriceable" }),
+    ]);
+    expect(points).toHaveLength(2);
+    expect(points.map((p) => p.call)).toEqual([100, 70]);
+    expect(points.map((p) => p.xrp)).toEqual([50, 60]);
   });
 
-  it("does not fabricate a curve when nothing is scored", () => {
-    const html = renderToStaticMarkup(<EquityCurve calls={[call({ pnlUsd: null })]} />);
-    expect(html).toContain("nothing to plot");
-    expect(html).not.toContain("<polyline");
-  });
-
-  // A single point has no line; drawing a one-point polyline renders as nothing at
-  // all, which would look like a missing chart rather than a single call.
-  it("marks a single scored call instead of drawing a degenerate line", () => {
-    const html = renderToStaticMarkup(<EquityCurve calls={[call()]} />);
-    expect(html).toContain("<circle");
-    expect(html).toContain("1 scored call");
+  // An unpriceable call has no P&L at all. Carrying it as 0 would draw a flat
+  // segment that reads as "this call went nowhere" rather than "this call could
+  // never be priced" — the no-fabricated-data rule applied to a chart.
+  it("does not fabricate a point when nothing is scored", () => {
+    expect(buildEquityCurve([call({ pnlUsd: null })])).toEqual([]);
   });
 
   it("does not reorder the caller's array", () => {
     const calls = [call({ id: 1, posted_at: 200 }), call({ id: 2, posted_at: 100 })];
-    renderToStaticMarkup(<EquityCurve calls={calls} />);
+    buildEquityCurve(calls);
     expect(calls.map((c) => c.id)).toEqual([1, 2]);
   });
 });
@@ -177,7 +177,7 @@ describe("SaidVsDid", () => {
       />
     );
     expect(html).toContain("Said long, then sold");
-    expect(html).toContain("6.0h later");
+    expect(html).toContain("6.0h");
     expect(html).toContain("$27,500");
   });
 });

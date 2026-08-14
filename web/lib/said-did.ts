@@ -1,8 +1,8 @@
-// Contradiction detection, ported from reference/kollateral/app/lib/said-did.ts.
+// Contradiction detection, ported from the reference implementation.
 // Pure and network-free: given a caller's calls and their self-disclosed wallet's
 // activity, find where the two disagree inside a window.
 //
-// kollateral only ever flagged "said long, then sold". That leaves the mirror case
+// The reference only ever flagged "said long, then sold". That leaves the mirror case
 // unhandled — a short call followed by a buy is the same broken promise — so both
 // are checked here. The asymmetry was a gap in the original, not a design choice.
 

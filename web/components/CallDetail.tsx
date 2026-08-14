@@ -1,6 +1,6 @@
 "use client";
 
-// Page 3 — Call Detail, as a panel within the dossier.
+// Page 3 — Call Detail, as a right-hand slide-over drawer.
 //
 // ⭐ The parsed signal is rendered *beside* the source post on purpose. Kassette has
 // exactly one non-deterministic step — the model that turns post text into
@@ -11,134 +11,245 @@
 // ⚠️ The receipt strip states what is genuinely on record and nothing more. A call
 // with no attestation says so; it does not borrow another call's badge or imply a
 // verification that never happened.
+//
+// Not ported from the reference version: its "Report deleted" control, which POSTs to
+// /api/report-deleted to re-check X for a deletion. Kassette has no such route, and
+// the button would be a control that does nothing.
 
+import { useState } from "react";
+import { resolveTweetUrl } from "@/lib/xlink";
+import type { DossierCall } from "@/lib/dossier";
 import type { Receipt } from "@/lib/queries";
-import { ErrorBox, Loading, useApi, when } from "./ui";
+import { ErrorBox, Loading, useApi } from "./ui";
+import { FadeTicket } from "./FadeTicket";
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+const EXPLORER_ADDRESS = "https://coston2-explorer.flare.network/address";
+
+function fmtDate(unixSeconds: number) {
+  return new Date(unixSeconds * 1000).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function truncateHash(hash: string | null | undefined, n: number) {
+  if (!hash) return null;
+  return hash.length > n ? `${hash.slice(0, n)}…` : hash;
+}
+
+function CopyButton({ value }: { value: string | null }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return null;
   return (
-    <div style={{ display: "flex", gap: "0.75rem", padding: "0.15rem 0" }}>
-      <span style={{ minWidth: "11rem", opacity: 0.7 }}>{label}</span>
-      <span style={{ wordBreak: "break-all" }}>{children}</span>
+    <button
+      onClick={() => {
+        navigator.clipboard?.writeText(value);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      }}
+      className="link ml-2"
+      style={{ fontSize: 11 }}
+      title="Copy to clipboard"
+    >
+      {copied ? "copied" : "copy"}
+    </button>
+  );
+}
+
+function ReceiptRow({ label, value, href }: { label: string; value: string | null; href?: string | null }) {
+  return (
+    <div className="flex items-center justify-between py-1.5" style={{ borderBottom: "1px solid var(--line)" }}>
+      <span className="label">{label}</span>
+      <span className="flex items-center">
+        {href && value ? (
+          <a href={href} target="_blank" rel="noopener noreferrer" className="link tnum">
+            {value} ↗
+          </a>
+        ) : (
+          <span className="tnum" style={{ color: "var(--muted)" }}>
+            {value ?? "—"}
+          </span>
+        )}
+        <CopyButton value={value} />
+      </span>
     </div>
   );
 }
 
-const EXPLORER = "https://coston2-explorer.flare.network/address";
-
-export function CallDetail({ callId, onClose }: { callId: number; onClose: () => void }) {
-  const { loading, error, data } = useApi<Receipt>(`/api/receipt/${callId}`, [callId]);
+export function CallDetail({
+  call,
+  onClose,
+  handle,
+}: {
+  call: DossierCall;
+  onClose: () => void;
+  handle: string;
+}) {
+  const { loading, error, data } = useApi<Receipt>(`/api/receipt/${call.id}`, [call.id]);
 
   return (
-    <aside
-      style={{
-        border: "2px solid currentColor",
-        padding: "1rem",
-        margin: "1rem 0",
-        position: "relative",
-      }}
-      aria-label={`Call ${callId} detail`}
-    >
-      <button onClick={onClose} style={{ position: "absolute", top: "0.5rem", right: "0.5rem" }}>
-        close ✕
-      </button>
+    <>
+      <div
+        onClick={onClose}
+        className="fixed inset-0 z-40"
+        style={{ background: "color-mix(in oklch, var(--bg) 70%, transparent)" }}
+        aria-hidden="true"
+      />
+      <div
+        className="fixed top-0 right-0 h-full w-[480px] z-50 overflow-y-auto"
+        style={{ background: "var(--bg-2)", borderLeft: "1px solid var(--line-strong)" }}
+        aria-label={`Call ${call.id} detail`}
+      >
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid var(--line)" }}>
+          <h2 className="label">Call detail</h2>
+          <button onClick={onClose} className="link text-lg leading-none" aria-label="Close">
+            ×
+          </button>
+        </div>
 
-      {loading && <Loading what={`call ${callId}`} />}
-      {error && <ErrorBox error={error} />}
-
-      {data && (
-        <>
-          <h3>Call #{data.callId} · @{data.handle}</h3>
-
-          {data.deletedAt != null && (
-            <p role="alert" style={{ border: "1px solid crimson", padding: "0.5rem" }}>
-              🗑️ This post was deleted on {when(data.deletedAt)}. It still counts in the P&amp;L —
-              deleting a call does not remove it from the record.
-            </p>
+        <div className="px-5 py-4 space-y-5">
+          {call.deleted_at != null && (
+            <div
+              className="px-3 py-2 text-sm"
+              style={{
+                borderRadius: "var(--radius)",
+                border: "1px solid color-mix(in oklch, var(--loss) 45%, var(--line))",
+                background: "color-mix(in oklch, var(--loss) 8%, var(--surface))",
+                color: "var(--loss)",
+              }}
+            >
+              Post deleted {fmtDate(call.deleted_at)}. It still counts in the P&amp;L — deleting a call
+              does not remove it from the record
+              {data?.contentHash ? ` (hash ${truncateHash(data.contentHash, 10)})` : ""}.
+            </div>
           )}
 
-          <section>
-            <h4>Source post</h4>
-            <blockquote style={{ margin: "0.5rem 0", whiteSpace: "pre-wrap" }}>{data.content}</blockquote>
-            <Row label="posted">{when(data.postedAt)}</Row>
-            <Row label="original">
-              <a href={data.url} target="_blank" rel="noreferrer noopener">{data.url} ↗</a>
-            </Row>
-            {data.contentHash && <Row label="content hash"><code>{data.contentHash}</code></Row>}
-          </section>
-
-          <section>
-            <h4>Extracted signal</h4>
-            <p style={{ fontSize: "0.85rem", opacity: 0.8 }}>
-              Model output, shown next to the post so you can check it yourself. The extraction is
-              never in the scoring path — the arithmetic runs on FTSO prices alone.
+          {/* Source post — never truncated here (see the header note) */}
+          <div
+            className="px-4 py-3"
+            style={{ borderRadius: "var(--radius)", border: "1px solid var(--line)", background: "var(--surface)" }}
+          >
+            <p className="whitespace-pre-wrap" style={{ color: "var(--ink)" }}>
+              {call.content}
             </p>
-            <Row label="template">{data.extraction.template}</Row>
-            <Row label="asset">{data.extraction.assetSymbol ?? "—"}</Row>
-            <Row label="direction">{data.extraction.direction ?? "—"}</Row>
-            <Row label="target price">{data.extraction.targetPrice ?? "—"}</Row>
-            <Row label="confidence">{(data.extraction.confidence * 100).toFixed(0)}%</Row>
-          </section>
+            <div className="mt-3 flex items-center justify-between">
+              <span className="label tnum">{fmtDate(call.posted_at)}</span>
+              <a
+                href={resolveTweetUrl(call.url, handle)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="link"
+                style={{ fontSize: 12 }}
+              >
+                view original →
+              </a>
+            </div>
+          </div>
 
-          <section>
-            <h4>Receipt</h4>
-            {data.attestation == null ? (
-              <p style={{ opacity: 0.8 }}>
+          {/* Extracted signal, beside the post it came from */}
+          <div
+            className="px-4 py-3 text-sm"
+            style={{ borderRadius: "var(--radius)", border: "1px solid var(--line)", background: "var(--surface)" }}
+          >
+            <div className="label" style={{ marginBottom: 8 }}>
+              extracted signal
+            </div>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1" style={{ color: "var(--muted)" }}>
+              <span>{call.template}</span>
+              <span style={{ color: "var(--faint)" }}>·</span>
+              <span>{call.asset_symbol ?? "—"}</span>
+              <span style={{ color: "var(--faint)" }}>·</span>
+              <span>{call.direction ?? "—"}</span>
+              <span style={{ color: "var(--faint)" }}>·</span>
+              <span className="tnum">target {call.target_price ?? "—"}</span>
+              <span style={{ color: "var(--faint)" }}>·</span>
+              <span className="tnum">{(call.confidence * 100).toFixed(0)}% confidence</span>
+            </div>
+            <p className="label" style={{ marginTop: 10, textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}>
+              Model output, shown next to the post so you can check it yourself. The extraction is never
+              in the scoring path — the arithmetic runs on FTSO prices alone.
+            </p>
+          </div>
+
+          {/* Receipt strip */}
+          <div
+            className="px-4 py-3 text-xs"
+            style={{
+              borderRadius: "var(--radius)",
+              border: "1px solid var(--line)",
+              background: "var(--surface)",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <span className="label">TEE receipt</span>
+              {data?.attestation &&
+                (data.attestation.verified ? (
+                  <span className="label" style={{ color: "var(--gain)" }}>
+                    verified on-chain ✓
+                  </span>
+                ) : (
+                  <span className="label">not verified on-chain</span>
+                ))}
+            </div>
+
+            {loading && <Loading what="reading the receipt" />}
+            {error && <ErrorBox error={error} />}
+
+            {data && data.attestation == null && (
+              <div className="label" style={{ textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}>
                 No attestation on record for this call. The price marks are still Merkle-proven FTSO
                 data; what is missing is the TEE attestation of the post and its extraction.
-              </p>
-            ) : (
+              </div>
+            )}
+
+            {data?.attestation && (
               <>
-                <Row label="FCE-A source signer">
-                  {data.attestation.sourceTeeSigner ? (
-                    <a href={`${EXPLORER}/${data.attestation.sourceTeeSigner}`} target="_blank" rel="noreferrer noopener">
-                      <code>{data.attestation.sourceTeeSigner}</code> ↗
-                    </a>
-                  ) : "—"}
-                </Row>
-                <Row label="FCE-B extraction signer">
-                  {data.attestation.extractionTeeSigner ? (
-                    <a href={`${EXPLORER}/${data.attestation.extractionTeeSigner}`} target="_blank" rel="noreferrer noopener">
-                      <code>{data.attestation.extractionTeeSigner}</code> ↗
-                    </a>
-                  ) : "—"}
-                </Row>
-                <Row label="FDC voting round">{data.attestation.fdcVotingRoundId ?? "—"}</Row>
-                <Row label="verified">
-                  {data.attestation.verified ? "✓ recorded on-chain" : "not verified on-chain"}
-                </Row>
+                <ReceiptRow label="content hash" value={truncateHash(data.contentHash, 18)} />
+                <ReceiptRow
+                  label="FCE-A source signer"
+                  value={truncateHash(data.attestation.sourceTeeSigner, 18)}
+                  href={data.attestation.sourceTeeSigner ? `${EXPLORER_ADDRESS}/${data.attestation.sourceTeeSigner}` : null}
+                />
+                <ReceiptRow
+                  label="FCE-B extraction signer"
+                  value={truncateHash(data.attestation.extractionTeeSigner, 18)}
+                  href={
+                    data.attestation.extractionTeeSigner
+                      ? `${EXPLORER_ADDRESS}/${data.attestation.extractionTeeSigner}`
+                      : null
+                  }
+                />
+                <ReceiptRow
+                  label="FDC voting round"
+                  value={data.attestation.fdcVotingRoundId != null ? String(data.attestation.fdcVotingRoundId) : null}
+                />
                 {/*
                   The honest caveat, stated where the badge is rather than buried. Under
                   SIMULATED_TEE the registered code hash is a fixed test value and does not
                   measure the image (claude-docs/ERRORS.md §C), so a signature proves a live
-                  machine of that extension signed these bytes — not that a particular
-                  source ran.
+                  machine of that extension signed these bytes — not which source ran.
                 */}
-                <p style={{ fontSize: "0.8rem", opacity: 0.75, marginTop: "0.5rem" }}>
+                <p className="label" style={{ marginTop: 10, textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}>
                   Coston2 runs these enclaves with simulated attestation, so a signature proves a
-                  registered machine of the extension signed these bytes — not which code produced
-                  them.
+                  registered machine of the extension signed these bytes — not which code produced them.
                 </p>
               </>
             )}
-          </section>
 
-          {/*
-            Milestone 4 (FXRP copy/fade via Smart Accounts) is not built. The spec's
-            "no fabricated data" rule applies to actions too: a button that looked
-            live and did nothing would be a worse lie than an absent one.
-          */}
-          <section>
-            <h4>Copy / fade</h4>
-            <p style={{ opacity: 0.8 }}>
-              <button disabled title="Not built yet">FOLLOW</button>{" "}
-              <button disabled title="Not built yet">FADE</button>{" "}
-              Execution is not built. It will be an FXRP position change authorised by an XRPL
-              Payment you sign per call — never a standing delegation.
-            </p>
-          </section>
-        </>
-      )}
-    </aside>
+            <a
+              href={`/api/receipt/${call.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="link mt-3 inline-block"
+            >
+              verify →
+            </a>
+          </div>
+
+          <FadeTicket call={call} handle={handle} />
+        </div>
+      </div>
+    </>
   );
 }

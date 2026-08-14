@@ -2,7 +2,7 @@
 
 // Plain, deliberately unstyled primitives.
 //
-// `reference/kollateral/docs/frontend-features.md` opens by saying to build the
+// The reference frontend spec opens by saying to build the
 // *functionality* first — routing, data, actions, states — with no styling, and to
 // treat visual design as a separate later pass. These exist so every page spells its
 // three states the same way rather than each inventing its own, which is what makes
@@ -12,19 +12,34 @@ import { useEffect, useState } from "react";
 import type { ApiResult } from "../lib/api";
 
 export function Loading({ what }: { what: string }) {
-  return <p role="status">Loading {what}…</p>;
+  return (
+    <p role="status" className="label flick">
+      {what}…
+    </p>
+  );
 }
 
 export function ErrorBox({ error }: { error: string }) {
   return (
-    <p role="alert" style={{ border: "1px solid currentColor", padding: "0.75rem" }}>
+    <p
+      role="alert"
+      className="tnum"
+      style={{
+        border: "1px solid color-mix(in oklch, var(--loss) 45%, var(--line))",
+        background: "color-mix(in oklch, var(--loss) 8%, var(--surface))",
+        borderRadius: "var(--radius)",
+        padding: "10px 14px",
+        color: "var(--loss)",
+        fontSize: 13,
+      }}
+    >
       <strong>Error:</strong> {error}
     </p>
   );
 }
 
 export function Empty({ children }: { children: React.ReactNode }) {
-  return <p style={{ opacity: 0.7 }}>{children}</p>;
+  return <p style={{ color: "var(--muted)", fontSize: 13 }}>{children}</p>;
 }
 
 /**
@@ -105,8 +120,15 @@ export function when(unixSec: number | null | undefined): string {
   return new Date(unixSec * 1000).toISOString().slice(0, 10);
 }
 
-/** Sign-coloured text. Neutral when the value is unknown, never green-by-default. */
+/**
+ * Sign-coloured text. Neutral when the value is unknown, never green-by-default.
+ *
+ * Uses the design system's money tokens rather than raw `green`/`crimson`:
+ * red and green are the only semantic colour in the palette and they are
+ * reserved for P&L, so they must be the palette's own desaturated pair.
+ */
 export function Signed({ value, children }: { value: number | null | undefined; children: React.ReactNode }) {
-  const color = value == null ? "inherit" : value > 0 ? "green" : value < 0 ? "crimson" : "inherit";
+  const color =
+    value == null ? "var(--faint)" : value > 0 ? "var(--gain)" : value < 0 ? "var(--loss)" : "var(--muted)";
   return <span style={{ color }}>{children}</span>;
 }

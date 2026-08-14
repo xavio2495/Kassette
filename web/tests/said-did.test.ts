@@ -16,7 +16,7 @@ describe("findContradictions", () => {
     expect(c).toMatchObject({ callId: 1, eventId: 10, gapHours: 4, kind: "sold_after_long" });
   });
 
-  // The case kollateral's port left unhandled.
+  // The case the original detector left unhandled.
   it("flags a buy after a short call", () => {
     const [c] = findContradictions([shortXrp], [buy(T0 + 2 * HOUR)]);
     expect(c).toMatchObject({ callId: 2, kind: "bought_after_short" });

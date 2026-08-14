@@ -1,6 +1,6 @@
--- Adapted from reference/kollateral/app/lib/schema.sql. Same spine
+-- Adapted from the reference schema. Same spine
 -- (influencers → posts → calls → marks, plus wallet_events → contradictions);
--- the Flare-specific changes are called out below. Unlike kollateral there are
+-- the Flare-specific changes are called out below. Unlike the reference there are
 -- no try/catch ALTER migrations — this schema starts clean, so every column
 -- lives here.
 
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS calls (
   -- anything below the confidence threshold — visible, never scored.
   template TEXT NOT NULL CHECK (template IN ('DIRECTIONAL', 'TARGET_CALL', 'GEM_SHILL', 'AMBIGUOUS')),
   asset_symbol TEXT,
-  -- FTSO feed id (bytes21 hex) rather than kollateral's ERC-20 address: FTSO
+  -- FTSO feed id (bytes21 hex) rather than the reference ERC-20 address: FTSO
   -- carries a fixed feed set, so a symbol without one is `unpriceable`.
   feed_id TEXT,
   direction TEXT CHECK (direction IN ('long', 'short')),
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS calls (
 -- Marks are retention, not cache. Each row keeps the anchor-feed body and its
 -- Merkle proof, so a price can prove itself on-chain long after the fact —
 -- measured good to at least a year (claude-docs/FINDINGS_AND_DECISIONS.md §3).
--- kollateral smuggled its ETH benchmark into d1/d7 kinds disambiguated by
+-- The reference smuggled its ETH benchmark into d1/d7 kinds disambiguated by
 -- `source`; here the benchmark gets real kinds.
 CREATE TABLE IF NOT EXISTS marks (
   id INTEGER PRIMARY KEY,
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS marks (
   UNIQUE (call_id, kind)
 );
 
--- Replaces kollateral's 0G `artifacts` table. One row per call, recording every
+-- Replaces the reference 0G `artifacts` table. One row per call, recording every
 -- claim made about its provenance: the FDC attestation of the source, and the
 -- two chained TEE signatures (FCE-A over the post, FCE-B over the extraction).
 CREATE TABLE IF NOT EXISTS attestations (
@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS contradictions (
   UNIQUE (call_id, wallet_event_id)
 );
 
--- One row per confirmed copy/fade. Deliberately NOT kollateral's
+-- One row per confirmed copy/fade. Deliberately NOT the reference
 -- users/allocations/copy_trades model: HANDOFF.md §2.3 forbids standing
 -- delegation, so there is no allocation cap and no stored authority — every row
 -- corresponds to one XRPL Payment the follower signed in the moment.

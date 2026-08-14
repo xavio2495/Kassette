@@ -1,4 +1,4 @@
-// Per-caller aggregation, ported from reference/kollateral/app/lib/dossier.ts.
+// Per-caller aggregation, ported from the reference implementation.
 //
 // Two things carry over deliberately. Deleting a call never removes it from the
 // P&L — you cannot delete your way to a good record — and deletions are tallied
@@ -6,10 +6,11 @@
 // states cite counts ("N wallet events checked") rather than asserting innocence.
 //
 // The benchmark now reads from real `bench_entry` / `bench_latest` mark kinds
-// instead of kollateral's d1/d7-disambiguated-by-source workaround.
+// instead of the reference d1/d7-disambiguated-by-source workaround.
 import type { DatabaseSync } from "node:sqlite";
 import { getDb } from "./db";
 import { NOTIONAL, callPnl, dossierStats } from "./score";
+import { computeInsights, type CreatorInsights } from "./insights";
 
 export interface DossierCall {
   id: number;
@@ -58,6 +59,7 @@ export interface Dossier {
   displayName: string | null;
   stats: ReturnType<typeof dossierStats>;
   integrity: Integrity;
+  insights: CreatorInsights;
   calls: DossierCall[];
   saidVsDid: SaidVsDid;
 }
@@ -184,6 +186,13 @@ export function buildDossier(handle: string, database?: DatabaseSync): Dossier |
     };
   });
 
+  const saidVsDid = buildSaidVsDid(
+    db,
+    influencer.id,
+    influencer.wallet_address,
+    influencer.disclosure_source_url
+  );
+
   return {
     handle: influencer.handle,
     displayName: influencer.display_name,
@@ -194,8 +203,21 @@ export function buildDossier(handle: string, database?: DatabaseSync): Dossier |
       deletedAvgRetPct: deletedScored ? Math.round((deletedRetSum / deletedScored) * 100) / 100 : 0,
       deletedHiddenLoss,
     },
+    // Derived analytics for the dossier dashboard. Pure, and computed from the
+    // rows already assembled above rather than a second query.
+    insights: computeInsights(
+      calls.map((c) => ({
+        asset_symbol: c.asset_symbol,
+        direction: c.direction,
+        retPct: c.retPct,
+        url: c.url,
+        posted_at: c.posted_at,
+        deleted_at: c.deleted_at,
+      })),
+      saidVsDid.cases.length
+    ),
     calls,
-    saidVsDid: buildSaidVsDid(db, influencer.id, influencer.wallet_address, influencer.disclosure_source_url),
+    saidVsDid,
   };
 }
 

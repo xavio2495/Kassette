@@ -1,6 +1,6 @@
-// Ported from reference/kollateral/app/lib/score.ts. Deterministic arithmetic
+// Ported from the reference implementation. Deterministic arithmetic
 // with no model in its path (HANDOFF.md §2.4) — the only change is the
-// benchmark asset: kollateral held ETH, Kassette holds XRP.
+// benchmark asset: the reference held ETH, Kassette holds XRP.
 export const NOTIONAL = 1000;
 
 export function callPnl(entry: number, mark: number, direction: "long" | "short", notional = NOTIONAL) {

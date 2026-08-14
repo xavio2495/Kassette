@@ -30,6 +30,13 @@ export interface InfluencerSummary {
   totalPnl: number | null;
   benchmarkPnl: number | null;
   hasWallet: boolean;
+  /**
+   * Share of scored calls this caller's own wallet traded against, as a
+   * percentage. Always 0 for a caller with no disclosed wallet — which is why
+   * `hasWallet` is carried alongside it: 0% because nothing contradicted and 0%
+   * because nothing could be checked must not rank the same.
+   */
+  contradictionRate: number;
 }
 
 /**
@@ -62,6 +69,7 @@ export function listInfluencers(database?: DatabaseSync): InfluencerSummary[] {
       totalPnl: d.stats.settled > 0 ? d.stats.totalPnl : null,
       benchmarkPnl: d.stats.settled > 0 ? d.stats.benchmarkPnl : null,
       hasWallet: !!r.wallet_address,
+      contradictionRate: d.insights.contradictionRate,
     });
   }
 
@@ -89,6 +97,10 @@ export interface FeedCall {
   status: string;
   deleted: boolean;
   attested: boolean;
+  /** When the call's own stated window closes; null when none was stated. */
+  expiryAt: number | null;
+  /** Most recent Merkle-proven mark for this call, or null if never priced. */
+  latestPrice: number | null;
   /** The caller's track record, so a feed card can be judged in context. */
   callerWinRate: number | null;
   callerPnl: number | null;
@@ -101,7 +113,9 @@ export function recentCalls(limit = 50, database?: DatabaseSync): FeedCall[] {
     .prepare(
       `SELECT c.id, i.handle, i.display_name, p.content, p.url, p.posted_at, p.deleted_at,
               c.template, c.asset_symbol, c.direction, c.target_price, c.confidence, c.status,
-              (SELECT COUNT(*) FROM attestations a WHERE a.call_id = c.id) AS attested
+              c.expiry_at,
+              (SELECT COUNT(*) FROM attestations a WHERE a.call_id = c.id) AS attested,
+              (SELECT m.price_usd FROM marks m WHERE m.call_id = c.id AND m.kind = 'latest') AS latest_price
          FROM calls c
          JOIN posts p ON p.id = c.post_id
          JOIN influencers i ON i.id = p.influencer_id
@@ -112,7 +126,7 @@ export function recentCalls(limit = 50, database?: DatabaseSync): FeedCall[] {
       id: number; handle: string; display_name: string | null; content: string; url: string;
       posted_at: number; deleted_at: number | null; template: string; asset_symbol: string | null;
       direction: "long" | "short" | null; target_price: number | null; confidence: number;
-      status: string; attested: number;
+      status: string; expiry_at: number | null; attested: number; latest_price: number | null;
     }[];
 
   // One dossier per distinct caller in the page, memoised — the track-record pill
@@ -142,6 +156,8 @@ export function recentCalls(limit = 50, database?: DatabaseSync): FeedCall[] {
     status: r.status,
     deleted: r.deleted_at != null,
     attested: r.attested > 0,
+    expiryAt: r.expiry_at,
+    latestPrice: r.latest_price,
     callerWinRate: records.get(r.handle)?.winRate ?? null,
     callerPnl: records.get(r.handle)?.pnl ?? null,
   }));
@@ -234,5 +250,142 @@ export function getReceipt(callId: number, database?: DatabaseSync): Receipt | n
           verified: !!row.verified,
         }
       : null,
+  };
+}
+
+export interface ExecutionRow {
+  id: number;
+  callId: number;
+  handle: string;
+  displayName: string | null;
+  content: string;
+  assetSymbol: string | null;
+  mode: "copy" | "fade";
+  direction: "long" | "short";
+  xrplAccount: string;
+  xrplTxHash: string | null;
+  fxrpAmount: string | null;
+  flareTxHash: string | null;
+  status: string;
+  reason: string | null;
+  createdAt: number;
+}
+
+export interface ExecutionsByCaller {
+  handle: string;
+  displayName: string | null;
+  total: number;
+  executed: number;
+  copies: number;
+  fades: number;
+  fxrpDeployed: number;
+}
+
+export interface ExecutionsSummary {
+  total: number;
+  executed: number;
+  pending: number;
+  failed: number;
+  copies: number;
+  fades: number;
+  /** FXRP across *executed* rows only — a pending Payment has moved nothing. */
+  fxrpDeployed: number;
+  accounts: number;
+}
+
+export interface ExecutionsResponse {
+  summary: ExecutionsSummary;
+  byCaller: ExecutionsByCaller[];
+  executions: ExecutionRow[];
+}
+
+/**
+ * Every confirmed copy/fade, optionally narrowed to one XRPL account.
+ *
+ * ⚠️ There is no realized-P&L column here and that is not an oversight.
+ * The reference portfolio reports `yield_usd` per trade because its executor
+ * swaps through Uniswap and can read both legs. Kassette's unit of execution is
+ * an XRPL Payment that changes an FXRP position; nothing in this schema records
+ * what that position was later worth, so a P&L number would have to be invented.
+ * The page says so rather than showing a confident zero.
+ */
+export function listExecutions(xrplAccount?: string, database?: DatabaseSync): ExecutionsResponse {
+  const db = database ?? getDb();
+  const where = xrplAccount ? "WHERE e.xrpl_account = ?" : "";
+  const args = xrplAccount ? [xrplAccount] : [];
+
+  const rows = db
+    .prepare(
+      `SELECT e.id, e.call_id, e.mode, e.xrpl_account, e.xrpl_tx_hash, e.direction,
+              e.fxrp_amount, e.flare_tx_hash, e.status, e.reason, e.created_at,
+              i.handle, i.display_name, p.content, c.asset_symbol
+         FROM executions e
+         JOIN calls c ON c.id = e.call_id
+         JOIN posts p ON p.id = c.post_id
+         JOIN influencers i ON i.id = p.influencer_id
+         ${where}
+        ORDER BY e.created_at DESC`
+    )
+    .all(...args) as unknown as {
+      id: number; call_id: number; mode: "copy" | "fade"; xrpl_account: string;
+      xrpl_tx_hash: string | null; direction: "long" | "short"; fxrp_amount: string | null;
+      flare_tx_hash: string | null; status: string; reason: string | null; created_at: number;
+      handle: string; display_name: string | null; content: string; asset_symbol: string | null;
+    }[];
+
+  const executions: ExecutionRow[] = rows.map((r) => ({
+    id: r.id,
+    callId: r.call_id,
+    handle: r.handle,
+    displayName: r.display_name,
+    content: r.content,
+    assetSymbol: r.asset_symbol,
+    mode: r.mode,
+    direction: r.direction,
+    xrplAccount: r.xrpl_account,
+    xrplTxHash: r.xrpl_tx_hash,
+    fxrpAmount: r.fxrp_amount,
+    flareTxHash: r.flare_tx_hash,
+    status: r.status,
+    reason: r.reason,
+    createdAt: r.created_at,
+  }));
+
+  // fxrp_amount is TEXT in the schema so an exact on-chain integer survives the
+  // round trip. Number() is only ever used for display aggregates like these.
+  const amount = (e: ExecutionRow) => (e.status === "executed" ? Number(e.fxrpAmount ?? 0) || 0 : 0);
+
+  const byCallerMap = new Map<string, ExecutionsByCaller>();
+  for (const e of executions) {
+    const row = byCallerMap.get(e.handle) ?? {
+      handle: e.handle,
+      displayName: e.displayName,
+      total: 0,
+      executed: 0,
+      copies: 0,
+      fades: 0,
+      fxrpDeployed: 0,
+    };
+    row.total++;
+    if (e.status === "executed") row.executed++;
+    if (e.mode === "copy") row.copies++;
+    else row.fades++;
+    row.fxrpDeployed += amount(e);
+    byCallerMap.set(e.handle, row);
+  }
+
+  return {
+    summary: {
+      total: executions.length,
+      executed: executions.filter((e) => e.status === "executed").length,
+      pending: executions.filter((e) => e.status === "pending").length,
+      failed: executions.filter((e) => e.status === "failed").length,
+      copies: executions.filter((e) => e.mode === "copy").length,
+      fades: executions.filter((e) => e.mode === "fade").length,
+      fxrpDeployed: executions.reduce((n, e) => n + amount(e), 0),
+      accounts: new Set(executions.map((e) => e.xrplAccount)).size,
+    },
+    byCaller: [...byCallerMap.values()].sort((a, b) => b.fxrpDeployed - a.fxrpDeployed),
+    executions,
   };
 }

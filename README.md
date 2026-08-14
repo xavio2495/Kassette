@@ -178,8 +178,6 @@ npm run e2e     # 37 browser checks (dev server must be running)
 npm run typecheck && npm run build && npm run lint
 ```
 
-Bringing up the enclaves, the tunnels and the registries is a different order of work — that lives in `claude-docs/RUNBOOK.md`.
-
 ---
 
 ## Honest disclosures

@@ -78,10 +78,12 @@ void main(){
   float q2 = floor(field*levels + thr) / levels;
 
   // light forensic palette: dark grain forms emerge on bone-white paper
-  vec3 paper = vec3(0.965, 0.965, 0.972);
-  vec3 ink   = vec3(0.135, 0.145, 0.165);
-  vec3 col   = mix(paper, ink, q2);
-  col = mix(col, vec3(0.62, 0.80, 0.28), q2 * (1.0 - q2) * 0.16);  // faint lime whisper in the mids
+  // Inverted for the dark ground: the field is now ink-on-ground rather than
+  // ink-on-paper, so the hero reads as a lit surface the glass sits over.
+  vec3 ground = vec3(0.052, 0.056, 0.068);
+  vec3 lit    = vec3(0.780, 0.800, 0.850);
+  vec3 col    = mix(ground, lit, q2);
+  col = mix(col, vec3(0.62, 0.80, 0.28), q2 * (1.0 - q2) * 0.26);  // lime whisper in the mids
   col -= lens * 0.05;                                              // pointer deepens the grain
 
   gl_FragColor = vec4(col, 1.0);

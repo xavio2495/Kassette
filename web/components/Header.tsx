@@ -40,9 +40,11 @@ export function Header() {
         alignItems: "center",
         gap: 16,
         padding: "10px 24px",
-        borderBottom: "1px solid var(--line)",
-        background: "color-mix(in oklch, var(--bg) 80%, transparent)",
-        backdropFilter: "blur(8px)",
+        borderBottom: "1px solid var(--glass-edge)",
+        background: "var(--glass-tint)",
+        WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-sat))",
+        backdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-sat))",
+        boxShadow: "inset 0 -1px 0 var(--glass-shade), 0 8px 30px color-mix(in oklch, black 32%, transparent)",
       }}
     >
       <Link
@@ -53,7 +55,10 @@ export function Header() {
         <span className="mark">KAS</span>SETTE
       </Link>
 
-      <nav style={{ display: "flex", gap: 20 }}>
+      {/* ⚠️ Must wrap. Four links at a fixed 20px gap overflowed the viewport by
+          29px at 390px wide — and because the header is on every page, every page
+          scrolled sideways on a phone. */}
+      <nav style={{ display: "flex", flexWrap: "wrap", gap: "clamp(10px, 3vw, 20px)", minWidth: 0 }}>
         {NAV.map(([href, label]) => {
           const active = pathname === href;
           return (

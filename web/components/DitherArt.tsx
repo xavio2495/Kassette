@@ -186,7 +186,14 @@ export function DitherArt({
   }, [shape, invert, gap]);
 
   return (
-    <div className={className} aria-hidden="true" style={{ color: invert ? "var(--dark-ink)" : "var(--ink)" }}>
+    <div
+      className={className}
+      aria-hidden="true"
+      // ⚠️ The inverted variant is dimmed. On the old paper ground these bands
+      // were dark-on-light and naturally low contrast; inverted on a dark ground
+      // they became near-white blobs that drowned the caption sitting over them.
+      style={{ color: invert ? "color-mix(in oklch, var(--dark-ink) 46%, transparent)" : "var(--ink)" }}
+    >
       <canvas ref={ref} style={{ width: "100%", height: "100%", display: "block" }} />
     </div>
   );

@@ -210,7 +210,7 @@ export function MiniBars({ bars, height = 48 }: { bars: { label: string; value: 
         <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
           <div
             title={`${b.label}: ${b.value}`}
-            style={{ width: "100%", height: `${(b.value / max) * (height - 14)}px`, minHeight: 2, background: "var(--ink)", borderRadius: 2, transition: "height 0.9s var(--ease-out-expo)" }}
+            style={{ width: "100%", height: `${(b.value / max) * (height - 14)}px`, minHeight: 2, background: "color-mix(in oklch, var(--ink) 42%, transparent)", borderRadius: 3, transition: "height 0.9s var(--ease-out-expo)" }}
           />
           <span className="label" style={{ fontSize: 8 }}>{b.label}</span>
         </div>

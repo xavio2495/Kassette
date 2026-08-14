@@ -270,7 +270,7 @@ export default function TerminalPage() {
                     <span className="label" style={{ width: 18, color: "var(--faint)" }}>{i + 1}</span>
                     <span style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--ink)" }}>${sym}</span>
                     <span className="label" style={{ color: biasColor }}>{bias}</span>
-                    <span className="label tnum" style={{ width: 42, textAlign: "right" }}>
+                    <span className="label tnum" style={{ width: 62, textAlign: "right", whiteSpace: "nowrap" }}>
                       {e.count} call{e.count === 1 ? "" : "s"}
                     </span>
                   </div>

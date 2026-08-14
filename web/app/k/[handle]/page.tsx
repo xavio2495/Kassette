@@ -266,7 +266,7 @@ export default function DossierPage() {
         <VerdictBlock stats={dossier.stats} />
         <div className="panel rise" style={{ padding: 16, display: "grid", gap: 16, alignContent: "center" }}>
           <div>
-            <div className="label" style={{ marginBottom: 8 }}>{"// cumulative p&amp;l per call"}</div>
+            <div className="label" style={{ marginBottom: 8 }}>{"// cumulative p&l per call"}</div>
             <Sparkline values={sparkValues} positive={dossier.stats.totalPnl >= 0} />
           </div>
           <div>

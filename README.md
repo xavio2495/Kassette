@@ -1,11 +1,9 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="web/public/kassette-mark-inverse.svg">
-    <img src="web/public/kassette-mark.svg" alt="Kassette" height="76">
+    <source media="(prefers-color-scheme: dark)" srcset="web/public/kassette-lockup-inverse.svg">
+    <img src="web/public/kassette-lockup.svg" alt="Kassette" height="80" />
   </picture>
 </p>
-
-<h1 align="center">KASSETTE</h1>
 
 <p align="center"><b>A public, verifiable track record for crypto callers — every call attested inside a TEE, priced against FTSO, and tradeable as FXRP from an XRPL wallet.</b></p>
 

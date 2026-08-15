@@ -75,36 +75,22 @@ function ReceiptRow({ label, value, href }: { label: string; value: string | nul
   );
 }
 
-export function CallDetail({
-  call,
-  onClose,
-  handle,
-}: {
-  call: DossierCall;
-  onClose: () => void;
-  handle: string;
-}) {
+/**
+ * One call, in full: the source post, the extraction beside it, the receipt, and
+ * the copy/fade ticket.
+ *
+ * ⚠️ This renders CONTENT ONLY — no scrim, no drawer, no close button. It was a
+ * right-hand slide-over ported from kollateral, which is the wrong shape here: in
+ * this shell a call is a document, and documents are windows. The window supplies
+ * the frame, the title and the traffic lights, which also means two calls can be
+ * opened side by side and compared — the thing a single global drawer made
+ * impossible. See components/apps/CallApp.tsx.
+ */
+export function CallDetail({ call, handle }: { call: DossierCall; handle: string }) {
   const { loading, error, data } = useApi<Receipt>(`/api/receipt/${call.id}`, [call.id]);
 
   return (
-    <>
-      <div
-        onClick={onClose}
-        className="sheet-scrim"
-        aria-hidden="true"
-      />
-      <div
-        className="sheet"
-        aria-label={`Call ${call.id} detail`}
-      >
-        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid var(--line)" }}>
-          <h2 className="label">Call detail</h2>
-          <button onClick={onClose} className="link text-lg leading-none" aria-label="Close">
-            ×
-          </button>
-        </div>
-
-        <div className="px-5 py-4 space-y-5">
+    <div className="px-5 py-4 space-y-5">
           {call.deleted_at != null && (
             <div
               className="px-3 py-2 text-sm"
@@ -244,9 +230,7 @@ export function CallDetail({
             </a>
           </div>
 
-          <FadeTicket call={call} handle={handle} />
-        </div>
-      </div>
-    </>
+      <FadeTicket call={call} handle={handle} />
+    </div>
   );
 }

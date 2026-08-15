@@ -47,6 +47,35 @@ import { markCall } from "../lib/marks";
 const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL_ID = "nvidia/nemotron-3-super-120b-a12b:free";
 const TOOL_NAME = "emit_trade_signal";
+
+/**
+ * Where the classification runs.
+ *
+ * ⚠️ `openrouter` is the canonical path: its endpoint and model id are the ones
+ * pinned inside FCE-B's attested build, so a post classified here and a post
+ * classified in the enclave agree. `groq` does NOT agree — it is a different
+ * model on a different endpoint, chosen because OpenRouter's free tier is 50
+ * calls per day and the backlog is in the hundreds. Every call records which
+ * extractor produced it (see `_extractor` in extraction_json), because a record
+ * whose provenance is unclear is exactly what this product refuses to ship.
+ *
+ * Probed 2026-08-15 with the real schema and a forced tool_choice:
+ *   llama-3.3-70b-versatile  ✓ and the only one that correctly rejected
+ *                              "GM XRP MILLIONAIRES" as NOT_A_SIGNAL
+ *   openai/gpt-oss-120b/20b  ✓ but both classified that greeting as a GEM_SHILL
+ *   qwen/qwen3.6-27b         ✗ HTTP 400, rejects the schema
+ *   llama-3.1-8b-instant     ✓ rejects the greeting, mislabels templates
+ */
+const PROVIDERS = {
+  openrouter: { endpoint: OPENROUTER_ENDPOINT, model: MODEL_ID, envPrefix: "OPENROUTER_API", attestedMatch: true },
+  groq: {
+    endpoint: "https://api.groq.com/openai/v1/chat/completions",
+    model: "llama-3.3-70b-versatile",
+    envPrefix: "GROQ_API",
+    attestedMatch: false,
+  },
+} as const;
+type ProviderName = keyof typeof PROVIDERS;
 const MAX_POST_CHARS = 4000;
 
 // ⚠️ Both upstreams rate-limit the free tier, in different ways, and both bit:
@@ -140,12 +169,13 @@ function env(name: string): string {
 class KeyRing {
   private i = 0;
   constructor(private readonly keys: { name: string; key: string }[]) {
-    if (keys.length === 0) throw new Error("no OPENROUTER_API* credential in the repo root .env");
+    if (keys.length === 0) throw new Error("no matching API credential in the repo root .env");
   }
-  static fromEnv(): KeyRing {
+  static fromEnv(prefix = "OPENROUTER_API"): KeyRing {
+    const re = new RegExp(`^(${prefix}(?:_\\d+)?)=`);
     const names = envRaw()
       .split("\n")
-      .map((l) => /^(OPENROUTER_API(?:_\d+)?)=/.exec(l.trim())?.[1])
+      .map((l) => re.exec(l.trim())?.[1])
       .filter((n): n is string => !!n);
     // Deduplicate, keeping first-seen order.
     const seen = new Set<string>();
@@ -200,13 +230,14 @@ async function fetchTimeline(handle: string, apiKey: string): Promise<RawTweet[]
  * Classify one post. Returns null when the model would not answer inside the
  * schema — which is a refusal to record, never a guess.
  */
-async function extract(text: string, ring: KeyRing): Promise<Signal | null> {
+async function extract(text: string, ring: KeyRing, provider: ProviderName): Promise<Signal | null> {
   const apiKey = ring.current.key;
-  const res = await fetch(OPENROUTER_ENDPOINT, {
+  const cfg = PROVIDERS[provider];
+  const res = await fetch(cfg.endpoint, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: MODEL_ID,
+      model: cfg.model,
       temperature: 0,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
@@ -222,7 +253,7 @@ async function extract(text: string, ring: KeyRing): Promise<Signal | null> {
   if (res.status === 429) {
     const body = await res.text();
     if (/per-day|free-models-per-day/.test(body)) {
-      if (ring.rotate()) return extract(text, ring);
+      if (ring.rotate()) return extract(text, ring, provider);
       throw new DailyQuotaExhausted(
         "Every OPENROUTER_API* credential has spent its free daily quota. Progress is saved — " +
           "re-run `npm run ingest -- --extract-pending` after the 00:00 UTC reset, or add a key."
@@ -230,7 +261,7 @@ async function extract(text: string, ring: KeyRing): Promise<Signal | null> {
     }
     // A per-minute limit IS worth waiting out.
     await sleep(20_000);
-    return extract(text, ring);
+    return extract(text, ring, provider);
   }
   if (!res.ok) throw new Error(`extract: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
 
@@ -244,6 +275,22 @@ async function extract(text: string, ring: KeyRing): Promise<Signal | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * The stored model output, with its provenance attached.
+ *
+ * The signal's own fields stay at the top level so existing readers are
+ * unaffected; `_extractor` records what produced it and, crucially, whether that
+ * matches the model pinned in the enclave. `attested: false` throughout — this
+ * script never runs in a TEE.
+ */
+function extractionBlob(signal: Signal, provider: ProviderName): string {
+  const cfg = PROVIDERS[provider];
+  return JSON.stringify({
+    ...signal,
+    _extractor: { provider, model: cfg.model, matchesEnclaveModel: cfg.attestedMatch, attested: false },
+  });
 }
 
 /** The one place a post row is written, so both modes store it identically. */
@@ -266,7 +313,7 @@ function storePost(db: DatabaseSync, handle: string, t: RawTweet, postedAt: numb
  * daily quota costs nothing but the requests it already made — run it again
  * after the reset and it continues from the first unclassified post.
  */
-async function classifyPending(db: DatabaseSync, ring: KeyRing, limit: number, dryRun: boolean) {
+async function classifyPending(db: DatabaseSync, ring: KeyRing, provider: ProviderName, limit: number, dryRun: boolean) {
   const rows = db
     .prepare(
       `SELECT p.id, p.content, p.posted_at, i.handle
@@ -283,7 +330,7 @@ async function classifyPending(db: DatabaseSync, ring: KeyRing, limit: number, d
   let signals = 0, ambiguous = 0, notSignal = 0, priced = 0, unpriceable = 0;
 
   for (const row of rows) {
-    const signal = await extract(row.content, ring);
+    const signal = await extract(row.content, ring, provider);
     const preview = row.content.replace(/\s+/g, " ").slice(0, 58);
     if (!signal) { console.log(`  ?  @${row.handle} ${preview} → unparseable`); continue; }
 
@@ -310,7 +357,7 @@ async function classifyPending(db: DatabaseSync, ring: KeyRing, limit: number, d
        VALUES (?,?,?,?,?,?,?,?,?,?)`
     ).run(
       row.id, template, signal.asset_symbol, feed, signal.direction, signal.target_price,
-      row.posted_at + expiryDays * 86400, signal.confidence, JSON.stringify(signal),
+      row.posted_at + expiryDays * 86400, signal.confidence, extractionBlob(signal, provider),
       belowBar ? "ambiguous" : feed ? "open" : "unpriceable"
     );
     if (!belowBar && feed) {
@@ -358,13 +405,21 @@ async function main() {
   const only = flag("handle");
   const limit = Number(flag("limit") ?? "25");
 
+  const providerArg = (flag("provider") ?? "openrouter") as ProviderName;
+  if (!PROVIDERS[providerArg]) throw new Error(`unknown provider ${providerArg}; use openrouter or groq`);
+  const cfg = PROVIDERS[providerArg];
+
   const xKey = env("x_api");
-  const ring = fetchOnly ? null : KeyRing.fromEnv();
+  const ring = fetchOnly ? null : KeyRing.fromEnv(cfg.envPrefix);
 
   if (extractPending) {
-    const ring = KeyRing.fromEnv();
-    console.log(`classifying with ${ring.label}\n`);
-    await classifyPending(getDb(), ring, limit, dryRun);
+    const ring = KeyRing.fromEnv(cfg.envPrefix);
+    console.log(`classifying with ${cfg.model} via ${providerArg} — ${ring.label}`);
+    if (!cfg.attestedMatch) {
+      console.log("⚠️  this model is NOT the one pinned in FCE-B, so these extractions would");
+      console.log("   not match the enclave's. Each call records that in extraction_json.\n");
+    }
+    await classifyPending(getDb(), ring, providerArg, limit, dryRun);
     return;
   }
 
@@ -406,7 +461,7 @@ async function main() {
 
       let signal: Signal | null;
       try {
-        signal = await extract(t.text, ring!);
+        signal = await extract(t.text, ring!, providerArg);
       } catch (e) {
         if (e instanceof DailyQuotaExhausted) throw e;
         console.error(`  ✗ extract ${t.id}: ${(e as Error).message}`);
@@ -448,7 +503,7 @@ async function main() {
          VALUES (?,?,?,?,?,?,?,?,?,?)`
       ).run(
         postId, template, signal.asset_symbol, feed, signal.direction, signal.target_price,
-        postedAt + expiryDays * 86400, signal.confidence, JSON.stringify(signal),
+        postedAt + expiryDays * 86400, signal.confidence, extractionBlob(signal, providerArg),
         belowBar ? "ambiguous" : feed ? "open" : "unpriceable"
       );
 

@@ -33,7 +33,8 @@ export function Dock() {
 
   // Documents — dossiers, and anything minimized — collect after the divider,
   // the way macOS keeps minimized windows to the right of it.
-  const docs = state.windows.filter((w) => w.app === "dossier" || w.minimized).slice(0, 4);
+  const isDoc = (a: string) => a === "dossier" || a === "call";
+  const docs = state.windows.filter((w) => isDoc(w.app) || w.minimized).slice(0, 4);
 
   return (
     <nav className="lg dock" aria-label="Applications">

@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { openWindow } from "@/lib/desktop";
 import { VerdictBlock } from "@/components/VerdictBlock";
 import { CallLedger, FILTERS, type Filter } from "@/components/CallLedger";
-import { CallDetail } from "@/components/CallDetail";
 import { SaidVsDid } from "@/components/SaidVsDid";
 import { EquityCurveChart } from "@/components/EquityChart";
 import {
@@ -19,7 +19,7 @@ import { PoweredBy } from "@/components/PoweredBy";
 import { ErrorBox, Loading, useApi } from "@/components/ui";
 import { buildEquityCurve } from "@/lib/curve";
 import { xProfileUrl } from "@/lib/xlink";
-import type { Dossier, DossierCall } from "@/lib/dossier";
+import type { Dossier } from "@/lib/dossier";
 
 type Tab = "calls" | "said-vs-did";
 
@@ -64,19 +64,16 @@ export function DossierApp({ handle, callId }: { handle: string; callId?: number
   // ticket opens on arrival. Those buttons deliberately do not execute anything
   // (see CallTweet) — this is the review step they hand off to.
   //
-  // ⚠️ Derived, not synced. Copying the URL into state inside an effect is what
-  // React 19's set-state-in-effect rule rejects, and it would also be wrong:
-  // the panel would briefly render closed before the effect reopened it. `null`
-  // means "no explicit choice yet", so the URL still governs; `CLOSED` is an
-  // explicit dismissal that must survive the URL still saying otherwise.
-  const requestedId = callId ?? NaN;
-  const [chosen, setChosen] = useState<DossierCall | null | "CLOSED">(null);
-
-  const selected: DossierCall | null =
-    chosen === "CLOSED"
-      ? null
-      : (chosen ??
-        (Number.isInteger(requestedId) ? (dossier?.calls.find((c) => c.id === requestedId) ?? null) : null));
+  // ⚠️ A deep-linked ?call=N used to open a drawer this component owned, with a
+  // `CLOSED` sentinel so dismissing it survived the URL still naming the call.
+  // A call is now its own window, so the window manager owns that state: opening
+  // is idempotent, and closing is the window's close button. Nothing here has to
+  // remember a dismissal.
+  useEffect(() => {
+    if (callId != null && Number.isInteger(callId) && handle) {
+      openWindow({ app: "call", handle, callId });
+    }
+  }, [callId, handle]);
 
   const curve = useMemo(() => (dossier ? buildEquityCurve(dossier.calls) : []), [dossier]);
 
@@ -440,10 +437,10 @@ export function DossierApp({ handle, callId }: { handle: string; callId?: number
             calls={dossier.calls}
             filter={filter}
             handle={dossier.handle}
-            onSelect={(id) => setChosen(dossier.calls.find((c) => c.id === id) ?? null)}
+            onSelect={(id) => openWindow({ app: "call", handle: dossier.handle, callId: id })}
           />
 
-          {selected && <CallDetail call={selected} onClose={() => setChosen("CLOSED")} handle={dossier.handle} />}
+
         </>
       )}
 

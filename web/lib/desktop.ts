@@ -20,7 +20,8 @@ export type AppId =
   | "dossier"
   | "about"
   | "wallet"
-  | "pitch";
+  | "pitch"
+  | "call";
 
 export interface WindowFrame {
   x: number;
@@ -73,6 +74,9 @@ const SIZES: Record<AppId, { w: number; h: number }> = {
   wallet: { w: 720, h: 620 },
   // A deck wants a projector shape, not a document shape.
   pitch: { w: 1160, h: 720 },
+  // Tall and narrow: a call is a document you read down, and two of them side
+  // by side is the comparison the old single drawer made impossible.
+  call: { w: 560, h: 780 },
 };
 
 const TITLES: Record<AppId, string> = {
@@ -84,6 +88,7 @@ const TITLES: Record<AppId, string> = {
   about: "How it works",
   wallet: "Wallet",
   pitch: "Pitch",
+  call: "Call",
 };
 
 export const MENUBAR_H = 30;
@@ -95,11 +100,16 @@ export const MIN_H = 260;
 export const COMPACT_BREAKPOINT = 900;
 
 export function windowId(spec: OpenSpec): string {
-  return spec.app === "dossier" ? `dossier:${spec.handle ?? ""}` : spec.app;
+  if (spec.app === "dossier") return `dossier:${spec.handle ?? ""}`;
+  // One window per call, so several can be open and compared at once.
+  if (spec.app === "call") return `call:${spec.callId ?? ""}`;
+  return spec.app;
 }
 
 export function windowTitle(spec: OpenSpec): string {
-  return spec.app === "dossier" ? `@${spec.handle} — Dossier` : TITLES[spec.app];
+  if (spec.app === "dossier") return `@${spec.handle} — Dossier`;
+  if (spec.app === "call") return `Call ${spec.callId} — @${spec.handle}`;
+  return TITLES[spec.app];
 }
 
 const EMPTY: DesktopState = { windows: [], frontId: null, layout: "float" };

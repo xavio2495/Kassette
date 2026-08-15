@@ -368,8 +368,22 @@ async function main() {
   // ---- call detail + ticket ----
   console.log("\ncall detail / ticket");
   await page.goto(`${BASE}/k/demo_caller?call=1`, { waitUntil: "domcontentloaded" });
-  await waitForText(page, "Call detail");
-  check("deep-linked ticket opens", true);
+  // ⚠️ A call is its own WINDOW now, not a drawer inside the dossier. The old
+  // wait was on the drawer's "Call detail" header, which no longer exists —
+  // wait on the window's title instead, which is also the thing that proves the
+  // deep link opened a window rather than a panel.
+  await waitForText(page, /Call 1 — @demo_caller/);
+  check("deep-linked call opens as its own window", true);
+  check(
+    "and the dossier stays open behind it",
+    (await page.locator(".win").count()) >= 2,
+    `${await page.locator(".win").count()} window(s)`
+  );
+  // ⚠️ The window titles before its content exists. As a drawer this was handed
+  // the call as a prop and rendered instantly; as a window it fetches the
+  // dossier so it can also stand alone on a deep link with nothing else open.
+  // Wait for the content, or every assertion below races the request.
+  await waitForText(page, "extracted signal");
   check("extraction shown beside the post", (await page.getByText("extracted signal").count()) > 0);
   check("copy/fade ticket present", (await page.getByText("copy / fade").count()) > 0);
   check(

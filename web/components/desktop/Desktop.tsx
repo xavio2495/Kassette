@@ -31,6 +31,7 @@ import { DossierApp } from "../apps/DossierApp";
 import { AboutApp } from "../apps/AboutApp";
 import { WalletApp } from "../apps/WalletApp";
 import { PitchApp } from "../apps/PitchApp";
+import { CallApp } from "../apps/CallApp";
 
 /** Subscribe to the window manager. */
 export function useDesktop() {
@@ -48,6 +49,8 @@ export function pathFor(win: WindowState | null): string {
   if (win.app === "about") return "/";
   if (win.app === "wallet") return "/wallet";
   if (win.app === "pitch") return "/pitch";
+  // A call is addressed through its caller, which is also how it is deep-linked.
+  if (win.app === "call") return `/k/${win.handle}?call=${win.callId}`;
   return `/${win.app}`;
 }
 
@@ -69,6 +72,8 @@ function content(win: WindowState) {
       return <WalletApp />;
     case "pitch":
       return <PitchApp />;
+    case "call":
+      return <CallApp handle={win.handle ?? ""} callId={win.callId ?? 0} />;
   }
 }
 

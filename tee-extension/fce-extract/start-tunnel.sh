@@ -6,10 +6,10 @@
 #
 # ⛔ Why this script exists rather than `ngrok config add-authtoken` + `ngrok http`.
 #
-# ~/.config/ngrok/ holds **Gestalt's** credentials (ngrok.yml, margin.yml) backing its
-# two registered FCEs. `add-authtoken` rewrites the default config in place — it would
-# swap Gestalt's credential for Kassette's, and nothing would fail until Gestalt next
-# tried to bring a tunnel up.
+# ~/.config/ngrok/ holds **another project's** credentials (ngrok.yml, margin.yml)
+# backing that project's two registered FCEs. `add-authtoken` rewrites the default
+# config in place — it would swap that credential for Kassette's, and nothing would
+# fail until the other project next tried to bring a tunnel up.
 #
 # So: the token is read from the repo-root .env as NGROK_AUTHTOKEN_2 (the agent reads
 # NGROK_AUTHTOKEN natively and it takes precedence over any config file, so this script

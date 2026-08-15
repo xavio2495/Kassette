@@ -6,8 +6,7 @@
 // confuse whatever consumes it. Hashing is safe; parsing would not be.
 //
 // The commitment is built from fixed-width components only. A delimiter-joined
-// canonical string (the shape Cifra's ProvenanceCanonical uses for its numeric
-// fields) is unsafe the moment a field can contain the delimiter — and post text
+// canonical string is unsafe the moment a field can contain the delimiter — and post text
 // can contain anything, including "|". Hashing each field to 32 bytes first makes
 // the encoding unambiguous, so no post can be crafted to collide with another.
 package attest
@@ -107,7 +106,7 @@ func (p Post) Validate() error {
 //
 // CallID is echoed from the instruction so the signature binds this attestation to
 // one call. Without it a valid attestation could be replayed onto a different call
-// — the same defect as Cifra's audit finding H1.
+// — the same class of replay defect.
 type Result struct {
 	CallID      [32]byte
 	PostIDHash  [32]byte

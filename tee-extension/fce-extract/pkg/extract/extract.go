@@ -104,8 +104,7 @@ var (
 	ErrResponseLimit = errors.New("extract: response exceeded the read limit")
 )
 
-// SystemPrompt is part of the attested build. Adapted from
-// reference/kollateral/app/lib/zg.ts, with the containment paragraph added.
+// SystemPrompt is part of the attested build.
 //
 // ⚠️ The instruction not to follow instructions is worth exactly as much as the
 // model's willingness to comply, which is to say it is not a security control. It

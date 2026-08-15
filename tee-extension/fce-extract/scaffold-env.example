@@ -14,7 +14,7 @@
 # ---------------------------------------------------------------------------------
 # §1 ⛔ Isolation — this is the THIRD stack on this machine
 # ---------------------------------------------------------------------------------
-# Gestalt runs two FCEs, Kassette FCE-A runs a third, and this is a fourth stack. All
+# Another project runs two FCEs, Kassette FCE-A runs a third, and this is a fourth. All
 # of them derive their Compose project name from the scaffold directory, and all name
 # their services `redis` / `ext-proxy` / `extension-tee`. Without the settings below,
 # `docker compose up` adopts and replaces another project's containers — taking down a
@@ -26,8 +26,8 @@
 #   Create it once:  docker network create kassette-fce-extract
 #
 # Ports in use elsewhere, for reference:
-#   Gestalt coston2    6673 / 6674 / 6382
-#   Gestalt margin     6683 / 6684 / 6383
+#   (other project)    6673 / 6674 / 6382
+#   (other project)    6683 / 6684 / 6383
 #   Kassette FCE-A     6703 / 6704 / 6385   (moved off 6683/6684 on 2026-08-13)
 #   Kassette FCE-B     6693 / 6694 / 6384   <- this file
 COMPOSE_PROJECT_NAME=kassette-fce-extract
@@ -95,7 +95,7 @@ EXTRACT_API_KEY=
 #
 # ⚠️ Do not cross the two tokens: NGROK_AUTHTOKEN is FCE-A's, NGROK_AUTHTOKEN_2 is FCE-B's.
 # The wrong one makes the reserved domain unavailable and the agent silently falls back to
-# an ephemeral hostname. Agent API ports: Gestalt 4040, FCE-A 4041, FCE-B 4042.
+# an ephemeral hostname. Agent API ports: 4040 (other project), FCE-A 4041, FCE-B 4042.
 #
 # The hostname is written on-chain at registration, but it is NOT frozen: the scaffold
 # ships scripts/update-tee-url.sh, which repoints it in one transaction with no

@@ -2,10 +2,12 @@
 #
 # ⛔ Deliberately holds NO authtoken, and is never installed into ~/.config/ngrok.
 #
-# That directory is Gestalt's: ngrok.yml and margin.yml carry the authtoken for its
-# account and back its two registered FCEs. `ngrok config add-authtoken` rewrites the
-# default file in place, so running it here would replace Gestalt's credential with
-# Kassette's — the two are separate accounts. Kassette's token comes from the repo-root
+# That directory belongs to a DIFFERENT project on this machine: its ngrok.yml and
+# margin.yml carry the authtoken for another account and back that project's two
+# registered FCEs. `ngrok config add-authtoken` rewrites the default file in place, so
+# running it here would replace that credential with Kassette's — the two are separate
+# accounts, and nothing would fail until the other project next brought a tunnel up.
+# Kassette's token comes from the repo-root
 # .env as NGROK_AUTHTOKEN, which the agent reads natively and which takes precedence
 # over any config file, so nothing global is read or written. Always pass --config.
 #
@@ -14,7 +16,7 @@
 version: "3"
 
 agent:
-  # 4040 is ngrok's default agent API port and is what a Gestalt agent would take.
+  # 4040 is ngrok's default agent API port and is what the other project's agent takes.
   # Distinct here so both accounts' agents can run at once.
   web_addr: localhost:4041
 
@@ -24,9 +26,9 @@ tunnels:
     # The scaffold's external proxy port for FCE-A — EXT_PROXY_EXTERNAL_BIND in
     # infra/fce-extension-scaffold/.env. The two must agree; start-tunnel.sh checks.
     #
-    # ⚠️ Moved 6684 -> 6704 on 2026-08-13: Gestalt's margin stack had taken 6684 while
-    # Kassette was down, and its tunnel was already serving it. Other stacks: Gestalt
-    # coston2 6674, Gestalt margin 6684, Kassette FCE-B 6694.
+    # ⚠️ Moved 6684 -> 6704 on 2026-08-13: another project's stack had taken 6684 while
+    # Kassette was down, and its tunnel was already serving it. Other stacks on this
+    # machine: 6674 and 6684 (not ours), Kassette FCE-B 6694.
     #
     # Changing this port does NOT require re-registration — the on-chain machine record
     # stores the hostname below, not the local port.

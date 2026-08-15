@@ -4,7 +4,7 @@
 // ⭐ Three of these eleven words exist purely to make the chain checkable, and they
 // are what separate this from an enclave that merely signs a model's opinion:
 //
-//	CallID      binds the extraction to one call (Cifra's audit finding H1)
+//	CallID      binds the extraction to one call, so a result cannot be replayed
 //	ContentHash binds it to the exact post text FCE-A attested — not "a post by
 //	            that author", but those precise bytes
 //	SourceTee   the address recovered from FCE-A's signature, inside the enclave

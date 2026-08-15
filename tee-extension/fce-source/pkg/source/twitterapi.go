@@ -50,8 +50,8 @@ func NewTwitterAPI(apiKey string, hc *http.Client) *TwitterAPI {
 // Only the fields FCE-A actually commits to are declared.
 //
 // Unlike the X client this decodes leniently, and the difference is deliberate.
-// Cifra rejects unknown fields so malformed private input can never be scored
-// silently — there, an unexpected field may mean a known field changed meaning.
+// Rejecting unknown fields is the right call where an unexpected field may mean a
+// known field changed meaning, as it does for private scoring input.
 // Here the provider returns thirty-odd tweet fields and a large nested author
 // object that it may extend at any time, while the enclave selects, validates,
 // and hashes exactly five of them. An unknown sibling field cannot change what is

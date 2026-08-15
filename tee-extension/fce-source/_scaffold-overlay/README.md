@@ -3,8 +3,8 @@
 The files the FCE scaffold needs changed, kept in version control.
 
 The scaffold under `infra/fce-extension-scaffold` is an upstream clone and is
-gitignored, so anything edited in place is untracked. Gestalt accepts that for
-"a few lines of glue" — but the attested **code hash covers the whole image**,
+gitignored, so anything edited in place is untracked. It is tempting to accept that
+for "a few lines of glue" — but the attested **code hash covers the whole image**,
 glue included, so untracked glue is a hole in the property the hash is supposed
 to give: that the running code corresponds to source somebody can read.
 
@@ -48,5 +48,6 @@ Everything else in the scaffold is upstream and unmodified — including
 
 ⚠️ The scaffold's `.env` is deliberately **not** here — it holds the deployer key
 and the provider credential. Its non-secret half, including the settings that keep
-Kassette's Docker stack from colliding with Gestalt's, is tracked one level up as
+Kassette's Docker stack from colliding with the other stacks on this machine, is
+tracked one level up as
 `../scaffold-env.example`.

@@ -299,7 +299,7 @@ func TestRefusesSubstitutedTextAndNeverCallsTheModel(t *testing.T) {
 }
 
 // An attestation genuinely produced for one call must not authorise an extraction
-// filed against another — Cifra's audit finding H1, across the chain.
+// filed against another — the replay binding, across the chain.
 func TestRefusesCallIDMismatch(t *testing.T) {
 	f := newFixture(t)
 	other := hash32(0x22)

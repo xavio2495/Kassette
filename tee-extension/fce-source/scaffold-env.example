@@ -3,19 +3,19 @@
 # The scaffold is an upstream clone and gitignored, so its .env is untracked and its
 # secrets stay out of the repo. This template is tracked because three of the values
 # below are not preferences — they are the difference between Kassette's stack coming
-# up and Kassette's stack destroying Gestalt's registered FCE. See §1 below.
+# up and Kassette's stack destroying ANOTHER project's registered FCE. See §1 below.
 #
 #   cp tee-extension/fce-source/scaffold-env.example infra/fce-extension-scaffold/.env
 #   # then fill DEPLOYMENT_PRIVATE_KEY, INITIAL_OWNER, SOURCE_API_KEY, EXT_PROXY_URL
 #
 # ---------------------------------------------------------------------------------
-# §1 ⛔ Isolation from Gestalt — do not remove, do not "simplify"
+# §1 ⛔ Isolation from the other stacks on this machine — do not remove, do not "simplify"
 # ---------------------------------------------------------------------------------
-# Gestalt keeps its scaffold at the same relative path (infra/fce-extension-scaffold),
-# so Docker Compose derives the SAME default project name for both. Without the three
-# settings below, `docker compose up` from Kassette adopts and replaces Gestalt's
-# containers — taking down a registered FCE whose proxy hostname is written on-chain,
-# and which cannot simply be restarted into place.
+# Another project on this machine keeps its scaffold at the same relative path
+# (infra/fce-extension-scaffold), so Docker Compose derives the SAME default project
+# name for both. Without the three settings below, `docker compose up` from Kassette
+# adopts and replaces that project's containers — taking down a registered FCE whose
+# proxy hostname is written on-chain, and which cannot simply be restarted into place.
 #
 # COMPOSE_PROJECT_NAME keeps the container set separate.
 # COMPOSE_NETWORK keeps service-name DNS separate: the base compose joins an *external*
@@ -26,14 +26,14 @@
 #
 # ⚠️ Four stacks now share this machine, and the map below is the whole agreement:
 #
-#   Gestalt coston2    6673 / 6674 / 6382
-#   Gestalt margin     6683 / 6684 / 6383
+#   (other project)    6673 / 6674 / 6382
+#   (other project)    6683 / 6684 / 6383
 #   Kassette FCE-A     6703 / 6704 / 6385   <- this file
 #   Kassette FCE-B     6693 / 6694 / 6384
 #
-# FCE-A moved off 6683/6684/6383 on 2026-08-13 because Gestalt's margin stack had taken
-# them while Kassette was down. Moving Kassette rather than Gestalt was the safe direction:
-# a running registered FCE is not something to repoint from another repo.
+# FCE-A moved off 6683/6684/6383 on 2026-08-13 because the other project's stack had
+# taken them while Kassette was down. Moving Kassette was the safe direction: a running
+# registered FCE is not something to repoint from another repo.
 #
 # ⚠️ The on-chain machine URL is unaffected by this. Registration stores the *hostname*
 # (unexposed-mountain-sushi.ngrok-free.dev), and only the local port the tunnel forwards to
@@ -91,7 +91,8 @@ SOURCE_API_KEY=
 # §5 Tunnel — required only at registration
 # ---------------------------------------------------------------------------------
 # The proxy's public hostname is written on-chain at registration, so it has to be
-# reachable and stable. Blocked at time of writing: Gestalt holds the one free ngrok
-# reserved domain, and the Cloudflare named tunnel has no ingress without a zone.
+# reachable and stable. Blocked at time of writing: another project on this machine
+# held the one free ngrok reserved domain, and the Cloudflare named tunnel has no
+# ingress without a zone. (Resolved since — Kassette has its own ngrok accounts.)
 # Local work up to `pre-build.sh` does not need this.
 EXT_PROXY_URL=

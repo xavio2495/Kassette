@@ -2,9 +2,10 @@
 #
 # ⛔ Deliberately holds NO authtoken, and is never installed into ~/.config/ngrok.
 #
-# That directory is Gestalt's: ngrok.yml and margin.yml carry the authtoken for its
-# account and back its two registered FCEs. `ngrok config add-authtoken` rewrites the
-# default file in place, so running it here would replace Gestalt's credential.
+# That directory belongs to a DIFFERENT project on this machine: its ngrok.yml and
+# margin.yml carry the authtoken for another account and back that project's two
+# registered FCEs. `ngrok config add-authtoken` rewrites the default file in place, so
+# running it here would replace that credential.
 # Kassette's FCE-B token comes from the repo-root .env as NGROK_AUTHTOKEN_2, which the
 # agent reads natively and which takes precedence over any config file, so nothing
 # global is read or written. Always pass --config.
@@ -19,8 +20,8 @@
 version: "3"
 
 agent:
-  # 4040 is ngrok's default and is taken by a Gestalt agent; 4041 is reserved for
-  # Kassette FCE-A. FCE-B takes 4042 so all four agents can run at once.
+  # 4040 is ngrok's default and is taken by another project's agent; 4041 is reserved
+  # for Kassette FCE-A. FCE-B takes 4042 so all four agents can run at once.
   web_addr: localhost:4042
 
 tunnels:
@@ -29,7 +30,7 @@ tunnels:
     # FCE-B's external proxy port — EXT_PROXY_EXTERNAL_BIND in
     # infra/fce-extension-scaffold-extract/.env.
     #
-    # Ports in use elsewhere: Gestalt coston2 6674, Gestalt margin 6684,
+    # Ports in use elsewhere on this machine: 6674 and 6684 (another project),
     # Kassette FCE-A 6704.
     addr: 6694
     # Reserved domain on Kassette's second ngrok account (rd_3HrbPoMVP7xkPrqz4F3En3dgWCI).

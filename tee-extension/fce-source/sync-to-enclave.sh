@@ -4,8 +4,7 @@
 #   tee-extension/fce-source/sync-to-enclave.sh          copy source -> scaffold
 #   tee-extension/fce-source/sync-to-enclave.sh --check  verify the copy is current
 #
-# Adapted from ../Gestalt/fce-matching/sync-to-enclave.sh — see
-# claude-docs/FCE_METHODOLOGY.md §3.
+# See claude-docs/FCE_METHODOLOGY.md §3.
 #
 # ⭐ Why a copy exists at all.
 #
@@ -15,8 +14,8 @@
 # the scaffold root, so a `replace` pointing at ../../fce-source resolves outside
 # the context and the image will not build. Hence a synced copy.
 #
-# ⭐ Two things are synced, not one. Gestalt keeps its scaffold glue as "a few
-# untracked lines"; the code hash covers those lines too, so this script also
+# ⭐ Two things are synced, not one. It is tempting to leave the scaffold glue as "a
+# few untracked lines"; the code hash covers those lines too, so this script also
 # applies `_scaffold-overlay/`, which holds every scaffold file Kassette changes.
 # Everything in the built image then traces to tracked source.
 #

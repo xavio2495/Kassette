@@ -42,7 +42,6 @@ services:
       # registers, routes and signs identically, so the failure surfaces only as a claim in the
       # demo that turns out to be false. Kassette's entire pitch is "this exact code ran", so
       # this is the one question the stack must state out loud rather than assume.
-      # (Adopted from Gestalt, which hit this first.)
       - MODE=${MODE:?set MODE explicitly - 0 for production attestation, 1 for simulated}
       # Chain id the node binds signatures to — must match the proxy's chain_id
       # and the chain itself. Local e2e Hardhat = 31337; the coston/coston2

@@ -338,7 +338,7 @@ func TestCheckRefusesSubstitutedText(t *testing.T) {
 }
 
 // An attestation genuinely produced for one call must not authorise an extraction
-// filed against another — Cifra's audit finding H1, applied across the chain.
+// filed against another — the replay binding, applied across the chain.
 func TestCheckRefusesCallIDMismatch(t *testing.T) {
 	key, err := crypto.GenerateKey()
 	if err != nil {

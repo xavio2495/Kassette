@@ -94,6 +94,8 @@ copy_overlay() {
 # is not a resolvable module path, so verify does not treat it as replaced. Hence
 # github.com/xavio2495/...; the on-disk location stays ./kassette/<name>.
 ZERO_PSEUDO_VERSION=v0.0.0-00010101000000-000000000000
+# Must match the version kassette/fce-extract/go.mod requires fce-source at — see wire_gomod.
+SOURCE_REQUIRE_VERSION=v0.0.0
 EXTRACT_PATH=github.com/xavio2495/kassette/fce-extract
 SOURCE_PATH=github.com/xavio2495/kassette/fce-source
 
@@ -102,11 +104,22 @@ SOURCE_PATH=github.com/xavio2495/kassette/fce-source
 #
 # The synced copy of FCE-B's own go.mod also carries a `replace` pointing at ../fce-source,
 # which is correct here (they are siblings under kassette/) and so is left alone.
+#
+# ⚠️ fce-source is required at plain v0.0.0, NOT at the zero pseudo-version, and the
+# difference is a build break rather than a style choice. `kassette/fce-extract/go.mod`
+# requires fce-source at `v0.0.0`, and `v0.0.0-00010101000000-000000000000` sorts BELOW
+# `v0.0.0` under semver pre-release ordering — so pinning the scaffold that low leaves the
+# main module demanding less than its own dependency does. Go's default `-mod=readonly`
+# then refuses to build with "updates to go.mod needed; to update it: go mod tidy", which
+# reads like a tidiness nag and is actually a hard failure of `go build ./cmd/docker` —
+# i.e. the enclave image cannot be rebuilt. Found 2026-08-15.
+#
+# fce-extract itself keeps the pseudo-version: nothing requires it, so nothing outranks it.
 wire_gomod() {
   ( cd "$GOROOT_DIR" \
     && go mod edit -require="$EXTRACT_PATH@$ZERO_PSEUDO_VERSION" \
                    -replace="$EXTRACT_PATH=./kassette/fce-extract" \
-    && go mod edit -require="$SOURCE_PATH@$ZERO_PSEUDO_VERSION" \
+    && go mod edit -require="$SOURCE_PATH@$SOURCE_REQUIRE_VERSION" \
                    -replace="$SOURCE_PATH=./kassette/fce-source" )
 }
 

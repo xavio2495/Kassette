@@ -11,13 +11,13 @@
 //
 // The model may only answer in enums and bounded numbers. Nothing it emits can
 // become an instruction, and nothing outside this shape survives parsing. That
-// matters more here than it did in kollateral, because an injection that gets
-// extracted *in-enclave* and TEE-signed comes out looking more trustworthy, not
-// less — the signature attests that the code ran, never that the output is sane.
+// matters more inside an enclave than it would anywhere else, because an
+// injection that gets extracted *in-enclave* and TEE-signed comes out looking
+// more trustworthy, not less — the signature attests that the code ran, never
+// that the output is sane.
 //
-// Ported from web/lib/signal-schema.ts, which is itself the port of
-// reference/kollateral/app/lib/signal-schema.ts. The three must agree on the
-// template set and the bounds; TestMatchesTypeScriptSchema pins the constants.
+// This and web/lib/signal-schema.ts must agree on the template set and the
+// bounds; TestMatchesTypeScriptSchema pins the constants.
 package signal
 
 import (
@@ -113,9 +113,8 @@ const (
 
 	// TargetPriceScale fixes the price to 8 decimal places as an integer.
 	// Deliberately not a float: the signed payload is consumed on-chain, where
-	// there is no floating point, and Cifra's audit lesson was that a
-	// reproducible artifact cannot contain a value whose text form depends on the
-	// producer's formatting.
+	// there is no floating point, and a reproducible artifact cannot contain a
+	// value whose text form depends on the producer's formatting.
 	TargetPriceScale = 1e8
 
 	// Ceiling on the scaled price. Guards the uint64 conversion against a model

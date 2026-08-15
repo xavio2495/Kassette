@@ -14,7 +14,7 @@ import (
 )
 
 // Request is the instruction payload. Both fields are public — they are emitted in
-// an on-chain event — so unlike Cifra's scoring input there is nothing to decrypt.
+// an on-chain event — so there is nothing to decrypt.
 //
 // Note what is absent: no URL, no endpoint, no credential, no platform. Those are
 // constants in the attested build. A caller who could supply them could point the
@@ -49,7 +49,7 @@ func decodeRequest(message []byte) (Request, [32]byte, error) {
 	var callID [32]byte
 
 	dec := json.NewDecoder(bytes.NewReader(message))
-	// Strict, following Cifra's score handler: an unrecognised field means the
+	// Strict by design: an unrecognised field means the
 	// caller and the enclave disagree about the request, and guessing which of
 	// them is right is exactly the wrong move inside something that signs.
 	dec.DisallowUnknownFields()

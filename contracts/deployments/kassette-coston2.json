@@ -8,5 +8,7 @@
   "attestationRegistryDeployedAt": "2026-08-12T17:37:00.092Z",
   "extractExtensionId": "66213",
   "KassetteExtractionRegistry": "0xA2638b8C7aF8D95a3c01fDD3896590306b141BA4",
-  "extractionRegistryDeployedAt": "2026-08-13T14:08:49.482Z"
+  "extractionRegistryDeployedAt": "2026-08-13T14:08:49.482Z",
+  "KassetteExecutionRegistry": "0xA547dD80a28Dc59A6b555A5E4aCc06B9856Aa6e6",
+  "executionRegistryDeployedAt": "2026-08-15T09:24:04.030Z"
 }

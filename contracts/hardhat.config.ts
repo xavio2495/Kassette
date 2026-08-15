@@ -16,8 +16,7 @@ const config: HardhatUserConfig = {
     solidity: {
         compilers: [
             {
-                // Matches reference/Cifra and flare-hardhat-starter. Cancun is
-                // required by the Flare periphery contracts.
+                // Cancun is required by the Flare periphery contracts.
                 version: "0.8.25",
                 settings: {
                     evmVersion: "cancun",

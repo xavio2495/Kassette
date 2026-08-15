@@ -282,7 +282,7 @@ describe("KassetteAttestationRegistry", () => {
         });
 
         // An attestation produced for one call must not be replayable onto another —
-        // Cifra's audit finding H1. The callId is inside the signed bytes, so changing it
+        // Replay binding. The callId is inside the signed bytes, so changing it
         // invalidates the signature rather than moving the record.
         it("cannot be replayed onto a different call", async () => {
             const data = encodeAttestation();

@@ -22,7 +22,7 @@ import { ITeeMachineRegistry } from "./interfaces/ITeeMachineRegistry.sol";
 ///            can a TEE belonging to some other extension.
 ///         3. **The attestation is bound to its call.** `callId` is echoed by the enclave as
 ///            word 0 and keyed on here, so an attestation produced for one call cannot be
-///            replayed onto another (Cifra's audit finding H1). A `callId` is written once
+///            replayed onto another. A `callId` is written once
 ///            and never overwritten.
 ///
 /// @dev ⚠️ Two honest limitations, stated rather than papered over.

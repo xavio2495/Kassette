@@ -387,7 +387,7 @@ describe("KassetteExtractionRegistry", () => {
     });
 
     describe("⭐ the bindings between the two halves", () => {
-        // Cifra's audit finding H1, across the chain: an attestation genuinely produced for
+        // Replay binding, across the chain: an attestation genuinely produced for
         // one call must not authorise an extraction filed against another.
         it("rejects a callId mismatch between the halves", async () => {
             const otherCall = "0x" + "22".repeat(32);

@@ -206,7 +206,7 @@ contract KassetteExtractionRegistry {
     ) private pure {
         (bytes32 sourceCallId, , , bytes32 sourceContentHash, , ) = decodeSource(_sourceData);
 
-        // Cifra's audit finding H1, across the chain: an attestation produced for one call
+        // Replay binding, across the chain: an attestation produced for one call
         // must not authorise an extraction filed against another.
         if (_callId != sourceCallId) revert CallIdMismatch(_callId, sourceCallId);
 

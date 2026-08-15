@@ -18,7 +18,10 @@ import * as path from "path";
 
 const SCAFFOLD = path.join(__dirname, "..", "..", "infra", "fce-extension-scaffold");
 
-const PROXY_URL = process.env.EXT_PROXY_URL ?? "http://localhost:6684";
+// FCE-A's external proxy port. Was 6684 until the 2026-08-13 port move, which is now
+// another project's stack on this machine — a stale default here does not fail, it
+// silently asks the wrong enclave. verifyChainRejection.ts pairs with FCE-B on 6694.
+const PROXY_URL = process.env.EXT_PROXY_URL ?? "http://localhost:6704";
 const POST_ID = process.env.SOURCE_POST_ID ?? "20";
 const COLLECT_DELAY_MS = Number(process.env.COLLECT_DELAY_MS ?? 20_000);
 const POLL_BUDGET_MS = 90_000;

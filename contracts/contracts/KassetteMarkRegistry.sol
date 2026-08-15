@@ -12,8 +12,7 @@ import { FtsoV2Interface } from "@flarenetwork/flare-periphery-contracts/coston2
 ///         Two integrity properties beyond "the proof verified":
 ///
 ///         1. A mark is bound to the `callId` it was proven for. A price proven for one
-///            call cannot be replayed onto another (the pattern behind Cifra's audit
-///            finding H1). The feed id is stored too, so an ETH price cannot be recorded
+///            call cannot be replayed onto another. The feed id is stored too, so an ETH price cannot be recorded
 ///            as an XRP entry.
 ///         2. An ENTRY mark is immutable once proven. The entry price is the number a
 ///            track record is most worth rewriting after the fact, so the contract

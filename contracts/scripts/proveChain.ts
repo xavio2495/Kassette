@@ -95,11 +95,25 @@ function parseLegacyTime(createdAt: string): number {
     return Math.floor(ms / 1000);
 }
 
-async function fetchPost(postId: string, apiKey: string): Promise<Post> {
+async function fetchPost(postId: string, apiKeys: string[]): Promise<Post> {
+    const [apiKey, ...rest] = apiKeys;
     const res = await fetch(`https://api.twitterapi.io/twitter/tweets?tweet_ids=${postId}`, {
         headers: { "X-API-Key": apiKey, Accept: "application/json" },
     });
     if (res.status === 429) throw new Error("twitterapi.io rate limited (free tier is 1 request / 5s)");
+    // ⚠️ 402 is an out-of-credit account, and twitterapi.io words it "Unauthorized" while
+    // meaning "unpaid" — so the status code is the only reliable signal. Try the next
+    // credential before giving up; each account carries its own balance.
+    //
+    // ⚠️ This only covers THIS script's recompute fetch. FCE-A does its own fetch with the
+    // credential in its container env, so a key that is dead there fails inside the enclave
+    // no matter what this rotates to — see claude-docs/ERRORS.md.
+    if (res.status === 402) {
+        if (rest.length > 0) return fetchPost(postId, rest);
+        throw new Error(
+            "every x_api* credential is out of twitterapi.io credits (HTTP 402) — recharge, or add a key to the root .env",
+        );
+    }
     if (!res.ok) throw new Error(`twitterapi.io returned ${res.status}`);
 
     const body = (await res.json()) as { tweets?: { id: string; text: string; createdAt: string; author?: { id: string } }[] };
@@ -222,8 +236,14 @@ function signedResult(r: ActionResponse) {
 }
 
 async function main() {
-    const apiKey = process.env.x_api;
-    if (!apiKey) throw new Error("x_api is not set in the root .env — FCE-A's provider credential");
+    // Every x_api* credential, in declaration order, so an exhausted account falls through
+    // to the next rather than stopping the run.
+    const apiKeys = Object.keys(process.env)
+        .filter((k) => /^x_api(_\d+)?$/.test(k))
+        .sort()
+        .map((k) => process.env[k])
+        .filter((v): v is string => !!v);
+    if (apiKeys.length === 0) throw new Error("x_api is not set in the root .env — FCE-A's provider credential");
 
     const deploymentFile = path.join(__dirname, "..", "deployments", `kassette-${network.name}.json`);
     const deployment = JSON.parse(fs.readFileSync(deploymentFile, "utf8"));
@@ -244,7 +264,7 @@ async function main() {
     console.log(`postId              ${POST_ID}\n`);
 
     console.log("1. fetching the post from twitterapi.io...");
-    const post = await fetchPost(POST_ID, apiKey);
+    const post = await fetchPost(POST_ID, apiKeys);
     const expectedHash = contentHash(post);
     console.log(`   author ${post.authorId}, posted ${new Date(post.postedAt * 1000).toISOString()}`);
     console.log(`   text   ${JSON.stringify(post.text.length > 80 ? post.text.slice(0, 80) + "…" : post.text)}`);
@@ -378,6 +398,44 @@ async function recordInDemoDb(
     const db = new DatabaseSync(dbPath);
     try {
         db.exec("PRAGMA foreign_keys = ON");
+
+        // ⚠️ Prefer the post the ingester already stored. `scripts/ingest-x.ts` keys posts on
+        // the BARE platform id ("2088462295852834992"); this script used to write only the
+        // prefixed form ("x-2088462295852834992") under a synthesised `author_<id>` handle.
+        // Attesting one of the curated callers' posts therefore produced a SECOND influencer
+        // and a SECOND call, and the attestation attached to the phantom — so @BankXRP's real
+        // call still rendered "no attestation" while an `author_…` row nobody recognises
+        // rendered the receipt. Reuse the real rows when they exist; mint only when they do not.
+        const existing = db
+            .prepare("SELECT id, influencer_id FROM posts WHERE platform_post_id IN (?, ?)")
+            .get(post.postId, `${post.platform}-${post.postId}`) as { id: number; influencer_id: number } | undefined;
+
+        if (existing) {
+            const inf = db.prepare("SELECT handle FROM influencers WHERE id = ?").get(existing.influencer_id) as { handle: string };
+            // The enclave hashed the text it fetched; record that hash against the stored post
+            // so the two agree, and let a mismatch in the text itself surface loudly rather
+            // than be silently overwritten.
+            const row = db.prepare("SELECT content FROM posts WHERE id = ?").get(existing.id) as { content: string };
+            if (row.content !== post.text) {
+                console.log(`\n   ⚠️  stored text differs from what the enclave fetched for ${post.postId}.`);
+                console.log(`      The attestation is over the ENCLAVE's text; the stored row is left untouched.`);
+            }
+            db.prepare("UPDATE posts SET content_hash = ? WHERE id = ?").run(stored.contentHash, existing.id);
+
+            const call = db.prepare("SELECT id FROM calls WHERE post_id = ?").get(existing.id) as { id: number } | undefined;
+            if (!call) {
+                console.log(`\n   post ${post.postId} (@${inf.handle}) is stored but has no call yet — classify it first.`);
+                return;
+            }
+            db.prepare(
+                `INSERT OR REPLACE INTO attestations
+                   (call_id, source_tee_signature, source_tee_signer, extraction_tee_signature, extraction_tee_signer, verified)
+                 VALUES (?,?,?,?,?,1)`,
+            ).run(call.id, source.signature, stored.sourceTee, extraction.signature, stored.extractTee);
+            console.log(`\n   recorded against the EXISTING call ${call.id} — @${inf.handle}, post ${post.postId}`);
+            console.log(`   signatures and signers are the enclaves' own; verified=1 because the registry accepted them (tx ${txHash.slice(0, 12)}…)`);
+            return;
+        }
 
         const handle = `author_${post.authorId}`;
         db.prepare("INSERT OR IGNORE INTO influencers (handle, platform, display_name) VALUES (?,?,?)").run(

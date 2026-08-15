@@ -23,6 +23,7 @@ import { ErrorBox, Loading, useApi } from "./ui";
 import { FadeTicket } from "./FadeTicket";
 
 const EXPLORER_ADDRESS = "https://coston2-explorer.flare.network/address";
+const EXPLORER_TX = "https://coston2-explorer.flare.network/tx";
 
 function fmtDate(unixSeconds: number) {
   return new Date(unixSeconds * 1000).toLocaleString(undefined, {
@@ -164,16 +165,36 @@ export function CallDetail({ call, handle }: { call: DossierCall; handle: string
               fontFamily: "var(--font-mono)",
             }}
           >
-            <div className="mb-2 flex items-center justify-between">
-              <span className="label">TEE receipt</span>
-              {data?.attestation &&
-                (data.attestation.verified ? (
-                  <span className="label" style={{ color: "var(--gain)" }}>
-                    verified on-chain ✓
-                  </span>
-                ) : (
-                  <span className="label">not verified on-chain</span>
-                ))}
+            {/*
+              ⚠️ Two independent pieces of evidence, reported separately, because they can
+              and do arrive apart. FDC attests AUTHORSHIP from a credential-free public
+              endpoint; the enclaves attest the post's TEXT and its extraction. A call can
+              hold either, both or neither.
+
+              This strip previously said "TEE receipt · not verified on-chain" whenever the
+              chained-TEE half was missing — which read as a failure on calls carrying a
+              genuine FDC proof that WAS verified on-chain. One badge cannot speak for two
+              claims, so there are two.
+            */}
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="label">evidence</span>
+              {data?.attestation && (
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  {data.attestation.fdcVerifiedTx && (
+                    <span className="label" style={{ color: "var(--gain)" }}>
+                      FDC verified ✓
+                    </span>
+                  )}
+                  {data.attestation.verified && (
+                    <span className="label" style={{ color: "var(--gain)" }}>
+                      TEE chain verified ✓
+                    </span>
+                  )}
+                  {!data.attestation.fdcVerifiedTx && !data.attestation.verified && (
+                    <span className="label">not verified on-chain</span>
+                  )}
+                </span>
+              )}
             </div>
 
             {loading && <Loading what="reading the receipt" />}
@@ -189,34 +210,62 @@ export function CallDetail({ call, handle }: { call: DossierCall; handle: string
             {data?.attestation && (
               <>
                 <ReceiptRow label="content hash" value={truncateHash(data.contentHash, 18)} />
-                <ReceiptRow
-                  label="FCE-A source signer"
-                  value={truncateHash(data.attestation.sourceTeeSigner, 18)}
-                  href={data.attestation.sourceTeeSigner ? `${EXPLORER_ADDRESS}/${data.attestation.sourceTeeSigner}` : null}
-                />
-                <ReceiptRow
-                  label="FCE-B extraction signer"
-                  value={truncateHash(data.attestation.extractionTeeSigner, 18)}
-                  href={
-                    data.attestation.extractionTeeSigner
-                      ? `${EXPLORER_ADDRESS}/${data.attestation.extractionTeeSigner}`
-                      : null
-                  }
-                />
-                <ReceiptRow
-                  label="FDC voting round"
-                  value={data.attestation.fdcVotingRoundId != null ? String(data.attestation.fdcVotingRoundId) : null}
-                />
-                {/*
-                  The honest caveat, stated where the badge is rather than buried. Under
-                  SIMULATED_TEE the registered code hash is a fixed test value and does not
-                  measure the image (claude-docs/ERRORS.md §C), so a signature proves a live
-                  machine of that extension signed these bytes — not which source ran.
-                */}
-                <p className="label" style={{ marginTop: 10, textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}>
-                  Coston2 runs these enclaves with simulated attestation, so a signature proves a
-                  registered machine of the extension signed these bytes — not which code produced them.
-                </p>
+
+                {data.attestation.fdcVerifiedTx && (
+                  <>
+                    <ReceiptRow
+                      label="FDC voting round"
+                      value={data.attestation.fdcVotingRoundId != null ? String(data.attestation.fdcVotingRoundId) : null}
+                    />
+                    <ReceiptRow
+                      label="FDC verification tx"
+                      value={truncateHash(data.attestation.fdcVerifiedTx, 18)}
+                      href={`${EXPLORER_TX}/${data.attestation.fdcVerifiedTx}`}
+                    />
+                    <p className="label" style={{ marginTop: 10, textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}>
+                      FDC attests <strong>authorship</strong> — that this post id belongs to this
+                      account — from a public endpoint needing no credential, so anyone can check it
+                      without trusting Kassette. It says nothing about the post&apos;s text.
+                    </p>
+                  </>
+                )}
+
+                {(data.attestation.sourceTeeSigner || data.attestation.extractionTeeSigner) && (
+                  <>
+                    <ReceiptRow
+                      label="FCE-A source signer"
+                      value={truncateHash(data.attestation.sourceTeeSigner, 18)}
+                      href={data.attestation.sourceTeeSigner ? `${EXPLORER_ADDRESS}/${data.attestation.sourceTeeSigner}` : null}
+                    />
+                    <ReceiptRow
+                      label="FCE-B extraction signer"
+                      value={truncateHash(data.attestation.extractionTeeSigner, 18)}
+                      href={
+                        data.attestation.extractionTeeSigner
+                          ? `${EXPLORER_ADDRESS}/${data.attestation.extractionTeeSigner}`
+                          : null
+                      }
+                    />
+                    {/*
+                      The honest caveat, stated where the badge is rather than buried. Under
+                      SIMULATED_TEE the registered code hash is a fixed test value and does not
+                      measure the image (claude-docs/ERRORS.md §C), so a signature proves a live
+                      machine of that extension signed these bytes — not which source ran.
+                    */}
+                    <p className="label" style={{ marginTop: 10, textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}>
+                      Coston2 runs these enclaves with simulated attestation, so a signature proves a
+                      registered machine of the extension signed these bytes — not which code produced them.
+                    </p>
+                  </>
+                )}
+
+                {!data.attestation.sourceTeeSigner && !data.attestation.extractionTeeSigner && (
+                  <p className="label" style={{ marginTop: 10, textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}>
+                    No enclave attestation of the post&apos;s <strong>text</strong> yet — that half
+                    needs a credentialed fetch inside the TEE, which FDC cannot do because a
+                    Web2Json request goes on-chain headers and all.
+                  </p>
+                )}
               </>
             )}
 

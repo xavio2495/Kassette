@@ -32,6 +32,14 @@ CREATE TABLE IF NOT EXISTS posts (
   posted_at INTEGER NOT NULL,
   deleted_at INTEGER,
   raw_json TEXT,
+  -- When the extractor last ran over this post, whatever the verdict.
+  --
+  -- ⚠️ Needed because NOT_A_SIGNAL produces no `calls` row, so "posts with no
+  -- call" conflates "never classified" with "classified as commentary". Without
+  -- this, every re-run reclassifies the entire commentary backlog and burns the
+  -- model quota again — and an interrupted run loses all record of its work.
+  -- Most posts are correctly not signals, and that IS the work.
+  classified_at INTEGER,
   -- 1 when this row was invented by scripts/seed-demo.ts rather than fetched.
   --
   -- ⚠️ Load-bearing for honesty, not a debug flag. A synthetic row carries a

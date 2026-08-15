@@ -96,3 +96,34 @@ export function resolveFeed(symbol: string | null): `0x${string}` | null {
   if (!symbol) return null;
   return FEEDS[normalizeSymbol(symbol)] ?? null;
 }
+
+const VOCABULARY = [...Object.keys(FEEDS), ...Object.keys(ALIASES)];
+
+/**
+ * Does this text name an asset that has an FTSO feed?
+ *
+ * ⚠️ Advisory only — it schedules work, it never decides a verdict. The
+ * ingester uses it to spend a limited daily model budget on the posts that could
+ * produce a *priced* call before the ones that could not, and a post it returns
+ * false for is classified later, not dropped. Never gate a call on this: "adding
+ * more here" names no asset and is still a real (unpriceable) claim, and only the
+ * extractor is allowed to say what a post meant.
+ *
+ * How a bare word is matched depends on how much of it there is to go wrong on,
+ * because the short tickers are ordinary English:
+ *   · 2 characters ("OP")            — cashtag only. `\bOP\b` is unsalvageable.
+ *   · 3 characters ("XRP", "ETC")    — must be UPPERCASE, or "etc" matches prose.
+ *   · 4+ ("Chainlink", "DOGE")       — case-insensitive, since callers write the
+ *                                      name far more often than the ticker.
+ * Cashtags carry their own marker, so `$op` needs none of this.
+ */
+export function mentionsAsset(text: string): boolean {
+  // ⚠️ Both forms are checked and OR'd. Testing the cashtag branch *instead of*
+  // the word branch when any cashtag is present misses "$BOME is done, back to
+  // XRP" — an unlisted cashtag next to a listed plain word.
+  return VOCABULARY.some((s) => {
+    if (new RegExp(`\\$${s}\\b`, "i").test(text)) return true;
+    if (s.length < 3) return false;
+    return new RegExp(`\\b${s}\\b`, s.length >= 4 ? "i" : "").test(text);
+  });
+}

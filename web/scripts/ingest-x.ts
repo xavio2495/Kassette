@@ -35,7 +35,7 @@ import path from "node:path";
 import { keccak256, stringToHex } from "viem";
 import { getDb } from "../lib/db";
 import { parseSignal, CONFIDENCE_THRESHOLD, DEFAULT_EXPIRY_DAYS, type Signal } from "../lib/signal-schema";
-import { resolveFeed } from "../lib/feeds";
+import { mentionsAsset, resolveFeed } from "../lib/feeds";
 import { markCall } from "../lib/marks";
 
 // ---------------------------------------------------------------------------
@@ -85,6 +85,93 @@ const MAX_POST_CHARS = 4000;
 //                      script cheerfully burned one failed request per post. A
 //                      daily quota is not retryable, so it stops the run instead.
 const TIMELINE_SPACING_MS = 5_200;
+
+/**
+ * How long to wait after a 429, taken from the response rather than guessed.
+ *
+ * ⚠️ Groq's binding limit is **tokens per minute** (12,000 on the free tier),
+ * not requests — a run showed 936/1000 requests still available while every call
+ * was being refused. The system prompt is ~700 tokens, so the real ceiling is
+ * ~15 classifications a minute. A blind 20s backoff turned that into roughly one
+ * a minute: it slept far longer than the ~5s the window actually needed, and
+ * measured 64 requests in 82 minutes. `retry-after` and `x-ratelimit-reset-*`
+ * carry the true answer, so read them.
+ */
+function retryDelayMs(res: Response): number {
+  const parse = (v: string | null): number | null => {
+    if (!v) return null;
+    const m = /^(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m(?!s))?(?:(\d+(?:\.\d+)?)s)?(?:(\d+(?:\.\d+)?)ms)?$/.exec(v.trim());
+    if (m && m.slice(1).some(Boolean)) {
+      return (+(m[1] ?? 0) * 3600 + +(m[2] ?? 0) * 60 + +(m[3] ?? 0)) * 1000 + +(m[4] ?? 0);
+    }
+    const secs = Number(v);
+    return Number.isFinite(secs) ? secs * 1000 : null;
+  };
+  const wait =
+    parse(res.headers.get("retry-after")) ??
+    parse(res.headers.get("x-ratelimit-reset-tokens")) ??
+    parse(res.headers.get("x-ratelimit-reset-requests"));
+  // A small margin over the stated reset, and never longer than a minute — a
+  // longer stated wait means the per-day cap, which rotation handles.
+  return Math.min(60_000, Math.max(1_000, (wait ?? 8_000) + 750));
+}
+
+/**
+ * Is this 429 a per-DAY cap rather than a per-minute one?
+ *
+ * ⚠️ There is no header for this. Groq's free tier caps tokens per day (TPD)
+ * and reports the exhaustion as a plain 429 whose `x-ratelimit-remaining-tokens`
+ * shows a full per-minute budget and whose `x-ratelimit-reset-tokens` says
+ * "1ms" — both true, both irrelevant, and together they say "retry now" when the
+ * real answer is "not for another nine minutes". Measured 2026-08-15:
+ *
+ *   429 … "on tokens per day (TPD): Limit 100000, Used 99472, Requested 1124.
+ *          Please try again in 8m34.9s"   x-ratelimit-reset-tokens: 1ms
+ *
+ * So the body is the only signal, and a run that ignores it does not fail — it
+ * politely polls a wall until someone notices.
+ */
+function isDailyCap(body: string): boolean {
+  return /per-day|free-models-per-day|per day \(TPD\)|tokens per day/i.test(body);
+}
+
+/**
+ * How long the provider itself says to wait, from the body: "Please try again
+ * in 8m34.9s". Null when it does not say.
+ *
+ * ⚠️ Groq's daily token budget is a ROLLING window, not a midnight reset — the
+ * same exhausted account answered "try again in 38.016s" one minute after
+ * "8m34.9s", because usage from ~24h earlier keeps falling out of the window. So
+ * a daily cap is not automatically a reason to stop: a short stated wait is real
+ * capacity arriving, and honouring it is the difference between grinding through
+ * the backlog and giving up on it.
+ */
+function statedWaitMs(body: string): number | null {
+  const m = /try again in\s+(?:(\d+(?:\.\d+)?)m)?(?:(\d+(?:\.\d+)?)s)?/i.exec(body);
+  if (!m || !(m[1] || m[2])) return null;
+  return (+(m[1] ?? 0) * 60 + +(m[2] ?? 0)) * 1000;
+}
+
+/** The provider's own words about the cap, for the operator to act on. */
+function dailyCapDetail(body: string): string {
+  try {
+    const msg = (JSON.parse(body) as { error?: { message?: string } }).error?.message;
+    if (msg) return msg.replace(/\s*Need more tokens\?.*$/s, "").trim();
+  } catch {
+    /* not JSON — fall through to the raw body */
+  }
+  return body.replace(/\s+/g, " ").slice(0, 200);
+}
+
+/**
+ * The longest this will sit waiting on a daily cap before handing back to the
+ * operator. Ten minutes is chosen from the observed release pattern: the rolling
+ * window quoted 38s and 8m34s on the same exhausted account, so waits in that
+ * range are capacity arriving, while anything beyond it means the day's budget
+ * is genuinely gone and the run should end with progress banked rather than
+ * sleep through hours pretending to work.
+ */
+const DAILY_WAIT_CEILING_MS = 10 * 60_000;
 
 class DailyQuotaExhausted extends Error {}
 
@@ -217,9 +304,21 @@ function isOwnPost(t: RawTweet): boolean {
   return text.trim().length > 0;
 }
 
-async function fetchTimeline(handle: string, apiKey: string): Promise<RawTweet[]> {
+async function fetchTimeline(handle: string, ring: KeyRing): Promise<RawTweet[]> {
   const url = `https://api.twitterapi.io/twitter/user/last_tweets?userName=${encodeURIComponent(handle)}`;
-  const res = await fetch(url, { headers: { "X-API-Key": apiKey } });
+  const res = await fetch(url, { headers: { "X-API-Key": ring.current.key } });
+  // ⚠️ 402, not 401/429. twitterapi.io answers an out-of-credit account with
+  // `402 {"error":"Unauthorized","message":"Credits is not enough.Please recharge"}`
+  // — note it says "Unauthorized" while meaning "unpaid", so the status code is
+  // the only reliable signal. Rotating is worth a try because a second account
+  // has its own balance; when none is left this is a top-up, not a retry.
+  if (res.status === 402) {
+    if (ring.rotate()) return fetchTimeline(handle, ring);
+    throw new DailyQuotaExhausted(
+      `Every x_api* credential is out of twitterapi.io credits (HTTP 402).\n` +
+        "  Posts already stored are unaffected; recharge the account or add a key to the root .env."
+    );
+  }
   if (!res.ok) throw new Error(`timeline ${handle}: HTTP ${res.status} ${await res.text()}`);
   const body = (await res.json()) as { status?: string; msg?: string; data?: { tweets?: RawTweet[] }; tweets?: RawTweet[] };
   if (body.status && body.status !== "success") throw new Error(`timeline ${handle}: ${body.msg ?? body.status}`);
@@ -252,15 +351,39 @@ async function extract(text: string, ring: KeyRing, provider: ProviderName): Pro
   });
   if (res.status === 429) {
     const body = await res.text();
-    if (/per-day|free-models-per-day/.test(body)) {
+    if (isDailyCap(body)) {
+      // The rolling window may be about to release enough for this one request.
+      // Wait only when the provider names a short, specific delay — anything
+      // longer is a genuine wall and belongs to the operator, not to a sleep.
+      const stated = statedWaitMs(body);
+      if (stated !== null && stated <= DAILY_WAIT_CEILING_MS) {
+        console.error(`     daily budget: waiting ${(stated / 1000).toFixed(0)}s for the rolling window`);
+        await sleep(stated + 1_000);
+        return extract(text, ring, provider);
+      }
       if (ring.rotate()) return extract(text, ring, provider);
       throw new DailyQuotaExhausted(
-        "Every OPENROUTER_API* credential has spent its free daily quota. Progress is saved — " +
-          "re-run `npm run ingest -- --extract-pending` after the 00:00 UTC reset, or add a key."
+        `Every ${cfg.envPrefix}* credential has spent its free daily quota.\n` +
+          `  ${dailyCapDetail(body)}\n` +
+          "  Progress is saved — every post already classified is stamped and will not be paid for\n" +
+          "  twice. Re-run `npm run ingest -- --extract-pending` after the reset, or add a key."
       );
     }
-    // A per-minute limit IS worth waiting out.
-    await sleep(20_000);
+    // A per-MINUTE limit IS worth waiting out — for exactly as long as the
+    // response says, no more.
+    const wait = retryDelayMs(res);
+    // ⚠️ Printed, not swallowed. A silent retry loop is indistinguishable from a
+    // slow model, and that ambiguity cost an 82-minute run that classified 4
+    // posts: the per-day cap and the per-minute cap are both a bare 429, and
+    // `x-ratelimit-reset-tokens` reports the per-MINUTE window either way — it
+    // said "1ms" while the body said "try again in 8m34s". Only the body
+    // distinguishes them, which is why isDailyCap() reads the body and this line
+    // prints it.
+    console.error(
+      `     429 (${res.headers.get("x-ratelimit-remaining-tokens") ?? "?"} tokens left this minute)` +
+        ` — waiting ${(wait / 1000).toFixed(1)}s`
+    );
+    await sleep(wait);
     return extract(text, ring, provider);
   }
   if (!res.ok) throw new Error(`extract: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
@@ -314,23 +437,46 @@ function storePost(db: DatabaseSync, handle: string, t: RawTweet, postedAt: numb
  * after the reset and it continues from the first unclassified post.
  */
 async function classifyPending(db: DatabaseSync, ring: KeyRing, provider: ProviderName, limit: number, dryRun: boolean) {
-  const rows = db
+  const pending = db
     .prepare(
       `SELECT p.id, p.content, p.posted_at, i.handle
          FROM posts p
          JOIN influencers i ON i.id = p.influencer_id
         WHERE p.synthetic = 0
-          AND NOT EXISTS (SELECT 1 FROM calls c WHERE c.post_id = p.id)
-        ORDER BY p.posted_at DESC
-        LIMIT ?`
+          AND p.classified_at IS NULL
+        ORDER BY p.posted_at DESC`
     )
-    .all(limit) as unknown as { id: number; content: string; posted_at: number; handle: string }[];
+    .all() as unknown as { id: number; content: string; posted_at: number; handle: string }[];
+
+  // ⚠️ Ordering, NOT filtering. Every pending post still gets classified; this
+  // only decides which ones a single day's token budget buys first. The free
+  // tier is ~89 classifications a day and the backlog is in the hundreds, so
+  // without an order the budget goes to whatever happens to be newest — and a
+  // post naming no asset cannot produce a priced call no matter what the model
+  // says about it. Measured on the current backlog: 82 of 196 name an asset.
+  //
+  // Nothing is skipped and nothing is pre-judged: the model still decides every
+  // verdict, including for the posts this defers. If it filtered instead, the
+  // corpus would be shaped by a regex rather than by what the callers posted.
+  const rows = [...pending].sort((a, b) => Number(mentionsAsset(b.content)) - Number(mentionsAsset(a.content)));
+  const deferred = Math.max(0, rows.length - limit);
+  rows.length = Math.min(rows.length, limit);
+  if (deferred > 0) {
+    console.log(`  (${deferred} further pending post(s) deferred to a later run — raise --limit to include them)`);
+  }
 
   console.log(`${rows.length} stored post(s) awaiting classification\n`);
+  const started = Date.now();
   let signals = 0, ambiguous = 0, notSignal = 0, priced = 0, unpriceable = 0;
 
+  const stamp = db.prepare("UPDATE posts SET classified_at = ? WHERE id = ?");
   for (const row of rows) {
     const signal = await extract(row.content, ring, provider);
+    // ⚠️ Stamped for EVERY verdict, before any early `continue`. A NOT_A_SIGNAL
+    // writes no `calls` row, so this is the only record that the post was ever
+    // looked at — without it an interrupted run loses all its work and the next
+    // run pays for the same commentary again.
+    if (!dryRun) stamp.run(Math.floor(Date.now() / 1000), row.id);
     const preview = row.content.replace(/\s+/g, " ").slice(0, 58);
     if (!signal) { console.log(`  ?  @${row.handle} ${preview} → unparseable`); continue; }
 
@@ -373,9 +519,10 @@ async function classifyPending(db: DatabaseSync, ring: KeyRing, provider: Provid
     } else if (!belowBar) unpriceable++;
   }
 
+  const mins = ((Date.now() - started) / 60_000).toFixed(1);
   console.log(
     `\n${dryRun ? "[dry run] " : ""}${signals} signals · ${ambiguous} ambiguous · ` +
-      `${notSignal} not-a-signal · ${priced} priced · ${unpriceable} unpriceable`
+      `${notSignal} not-a-signal · ${priced} priced · ${unpriceable} unpriceable · ${mins} min`
   );
 }
 
@@ -409,7 +556,10 @@ async function main() {
   if (!PROVIDERS[providerArg]) throw new Error(`unknown provider ${providerArg}; use openrouter or groq`);
   const cfg = PROVIDERS[providerArg];
 
-  const xKey = env("x_api");
+  // Both credentials are rings: twitterapi.io accounts run out of credits and
+  // model accounts run out of daily quota, and in each case a second account in
+  // the root .env is the difference between finishing and stopping.
+  const xRing = KeyRing.fromEnv("x_api");
   const ring = fetchOnly ? null : KeyRing.fromEnv(cfg.envPrefix);
 
   if (extractPending) {
@@ -435,8 +585,13 @@ async function main() {
     if (n > 0) await sleep(TIMELINE_SPACING_MS);
     let timeline: RawTweet[];
     try {
-      timeline = await fetchTimeline(handle, xKey);
+      timeline = await fetchTimeline(handle, xRing);
     } catch (e) {
+      // ⚠️ An exhausted credential is not a per-handle failure. Swallowing it here
+      // would print `✗` for all 19 handles and exit 0, which reads as "these
+      // accounts have no posts" — the one wrong conclusion to draw from a billing
+      // problem. Let it out; main()'s handler explains it and exits 2.
+      if (e instanceof DailyQuotaExhausted) throw e;
       console.error(`  ✗ ${handle}: ${(e as Error).message}`);
       continue;
     }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { feedId, resolveFeed, normalizeSymbol, XRP_USD } from "../lib/feeds";
+import { feedId, mentionsAsset, resolveFeed, normalizeSymbol, XRP_USD } from "../lib/feeds";
 
 describe("feed ids", () => {
   // The one value HANDOFF.md §5 states outright — if derivation matches it,
@@ -55,5 +55,33 @@ describe("priceable-asset gate", () => {
     expect(resolveFeed("pepe")).not.toBeNull();
     expect(resolveFeed("POL")).not.toBeNull();
     expect(resolveFeed("XRP")).toBe(XRP_USD);
+  });
+});
+
+describe("mentionsAsset", () => {
+  // ⚠️ This only orders the ingester's queue against a daily model budget. It
+  // must never decide a verdict, so the tests that matter most are the ones
+  // pinning what it does NOT claim.
+  it("finds tickers, cashtags and full names", () => {
+    expect(mentionsAsset("XRP is heating up, adding here")).toBe(true);
+    expect(mentionsAsset("loading $sol under 90")).toBe(true);
+    expect(mentionsAsset("Chainlink looks ready")).toBe(true);
+    expect(mentionsAsset("FXRP mints are live")).toBe(true);
+  });
+
+  it("does not fire on ordinary prose that happens to contain a short ticker", () => {
+    // "OP", "UNI", "ETC", "ATOM" and "SUI" are all real feeds and all appear
+    // inside ordinary English. Requiring uppercase and 3+ characters for a bare
+    // word is what keeps the queue honest instead of matching everything.
+    expect(mentionsAsset("op-ed on university funding etc")).toBe(false);
+    expect(mentionsAsset("Nervous money freezes on flat tape.")).toBe(false);
+    expect(mentionsAsset("GM 😊 Have a blessed saturday")).toBe(false);
+  });
+
+  it("sees a listed plain word beside an unlisted cashtag", () => {
+    // The first version tested the cashtag branch INSTEAD of the word branch
+    // when any cashtag was present, so this post scheduled last despite naming
+    // a priceable asset outright.
+    expect(mentionsAsset("$BOME is done, rotating back into XRP")).toBe(true);
   });
 });

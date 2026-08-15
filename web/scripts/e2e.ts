@@ -123,16 +123,45 @@ async function main() {
   check("hero heading renders", true);
   check("wordmark present", wordmark > 0);
 
-  // ⚠️ The tape photograph is composited onto the desk with `multiply`, which
-  // any stacking context between it and the wallpaper silently breaks — the
-  // white studio background comes back as a white box. It regressed twice
-  // during the redesign (once from a `position: fixed`, once from an entrance
-  // animation), so the blend mode is asserted rather than eyeballed.
-  const tapeBlend = await page
-    .locator('img[src="/kassette.jpg"]')
-    .evaluate((el) => getComputedStyle(el).mixBlendMode)
-    .catch(() => "missing");
-  check("the tape is composited onto the desk", tapeBlend === "multiply", `mix-blend-mode: ${tapeBlend}`);
+  // ⚠️ The tape is composited onto the desk with `multiply`, and ANY stacking
+  // context between it and the wallpaper silently breaks that — the white
+  // studio background then renders as a white box. It has regressed three
+  // times: `position: fixed`, a filled entrance animation, and a
+  // `translateY(-50%)` used for centring.
+  //
+  // Reading `getComputedStyle(...).mixBlendMode` does NOT catch this. That
+  // property stays "multiply" the whole time the blend is isolated, and an
+  // earlier version of this check passed while the desk was visibly broken.
+  // The only honest test is whether the pixels composite, so: sample a point in
+  // the photo's white margin, then hide the image and sample the same point. If
+  // the blend is live, white multiplied by the wall IS the wall.
+  const tapeRect = await page.locator("img.tape").evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height };
+  });
+  // The drifting wall has to hold still or the two samples are of different
+  // frames.
+  await page.addStyleTag({ content: ".wall-masses > * { animation: none !important; }" });
+  await page.waitForTimeout(200);
+  const sampleX = Math.round(Math.min(1400, tapeRect.x + tapeRect.w * 0.86));
+  const sampleY = Math.round(Math.max(4, tapeRect.y + tapeRect.h * 0.12));
+  const samplePixel = async () => {
+    const buf = await page.screenshot({ clip: { x: sampleX, y: sampleY, width: 2, height: 2 } });
+    // The PNG's first pixel begins at a fixed offset only after inflating, so
+    // compare the encoded bytes instead: identical pixels give identical PNGs.
+    return buf.toString("base64");
+  };
+  const withTape = await samplePixel();
+  await page.addStyleTag({ content: "img.tape { visibility: hidden !important; }" });
+  await page.waitForTimeout(150);
+  const wallOnly = await samplePixel();
+  check(
+    "the tape actually composites onto the desk (not just declares it)",
+    withTape === wallOnly,
+    "the photo's white background is not multiplying — something above it created a stacking context"
+  );
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForText(page, "THE TAPE REMEMBERS");
 
   // The desk is a screen, not a page: it must never scroll.
   const deskScrolls = await page.evaluate(
@@ -234,6 +263,30 @@ async function main() {
     boxes.some((b, j) => j > i && a.x < b.x + b.w - 2 && b.x < a.x + a.w - 2 && a.y < b.y + b.h - 2 && b.y < a.y + a.h - 2)
   );
   check("tiling leaves no window overlapping another", boxes.length >= 2 && !overlaps, `${boxes.length} windows`);
+
+  // ---- the pitch deck ----
+  console.log("\npitch");
+  await page.goto(`${BASE}/pitch`, { waitUntil: "domcontentloaded" });
+  await waitForText(page, "The tape remembers.");
+  check("deck opens on the first slide", (await page.locator(".pitch-count").innerText()) === "1 / 8");
+  await page.locator(".pitch").click({ position: { x: 40, y: 40 } });
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(600);
+  check("arrow keys advance it", (await page.locator(".pitch-count").innerText()) === "2 / 8");
+  await page.getByRole("button", { name: /Slide 6/ }).click();
+  await page.waitForTimeout(600);
+  check("named dots jump to a slide", (await page.getByText("What actually runs today.").count()) > 0);
+  // ⚠️ Figures on the deck are fixed-height boxes and their contents are HTML,
+  // so a long label overflows into the heading below rather than being clipped.
+  // The settlement chain did exactly that before it got a compact variant.
+  const figOverflow = await page.locator(".pitch-fig").evaluateAll((els) =>
+    els.filter((el) => el.scrollHeight > el.clientHeight + 1).length
+  );
+  check("no figure overflows its box", figOverflow === 0, `${figOverflow} overflowing`);
+  // Only the visible slide may be reachable: the rest are inert, or tabbing
+  // walks into off-screen content.
+  const reachable = await page.locator(".pitch-slide:not([inert]) ").count();
+  check("only one slide is not inert", reachable === 1, `${reachable} active slides`);
 
   // ---- leaderboard ----
   console.log("\nleaderboard");

@@ -19,7 +19,8 @@ export type AppId =
   | "portfolio"
   | "dossier"
   | "about"
-  | "wallet";
+  | "wallet"
+  | "pitch";
 
 export interface WindowFrame {
   x: number;
@@ -70,6 +71,8 @@ const SIZES: Record<AppId, { w: number; h: number }> = {
   dossier: { w: 1040, h: 760 },
   about: { w: 980, h: 720 },
   wallet: { w: 720, h: 620 },
+  // A deck wants a projector shape, not a document shape.
+  pitch: { w: 1160, h: 720 },
 };
 
 const TITLES: Record<AppId, string> = {
@@ -80,6 +83,7 @@ const TITLES: Record<AppId, string> = {
   dossier: "Dossier",
   about: "How it works",
   wallet: "Wallet",
+  pitch: "Pitch",
 };
 
 export const MENUBAR_H = 30;

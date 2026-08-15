@@ -85,13 +85,26 @@ function useBlendGuard(ref: React.RefObject<HTMLImageElement | null>) {
     const offenders: string[] = [];
     for (let el = img.parentElement; el && el !== document.documentElement; el = el.parentElement) {
       const cs = getComputedStyle(el);
+      // Every property that creates a stacking context. ⚠️ `transform` was
+      // missing from this list once, and it is the one that actually broke the
+      // desk: centring the figure with translateY(-50%) isolated the blend at
+      // every desktop width while mobile — where the figure is static — kept
+      // working. If a new isolation source turns up, it belongs here.
       const why =
         cs.isolation === "isolate" ? "isolation: isolate"
-        : cs.position === "fixed" ? "position: fixed"
+        : cs.transform !== "none" ? `transform: ${cs.transform}`
+        : cs.translate !== "none" || cs.rotate !== "none" || cs.scale !== "none"
+          ? `translate/rotate/scale: ${cs.translate} ${cs.rotate} ${cs.scale}`
+        : cs.position === "fixed" || cs.position === "sticky" ? `position: ${cs.position}`
         : cs.filter !== "none" ? `filter: ${cs.filter}`
+        : cs.backdropFilter && cs.backdropFilter !== "none" ? `backdrop-filter: ${cs.backdropFilter}`
+        : cs.perspective !== "none" ? `perspective: ${cs.perspective}`
+        : cs.opacity !== "1" ? `opacity: ${cs.opacity}`
+        : cs.contain.includes("paint") || cs.contain.includes("layout") ? `contain: ${cs.contain}`
         : cs.zIndex !== "auto" && cs.position !== "static" ? `z-index: ${cs.zIndex}`
         : cs.animationName !== "none" ? `animation: ${cs.animationName}`
-        : cs.willChange.includes("transform") || cs.willChange.includes("opacity") ? `will-change: ${cs.willChange}`
+        : cs.willChange.includes("transform") || cs.willChange.includes("opacity") || cs.willChange.includes("filter")
+          ? `will-change: ${cs.willChange}`
         : cs.mixBlendMode !== "normal" ? `mix-blend-mode: ${cs.mixBlendMode}`
         : null;
       if (why) offenders.push(`<${el.tagName.toLowerCase()} class="${el.className}"> — ${why}`);
@@ -196,8 +209,10 @@ export function Desk() {
         desk itself rather than one click deep.
       */}
       <p className="desk-note">
-        Prices are real, Merkle-proven FTSO anchor feeds on Coston2 testnet. Callers shown are
-        fictional demo data. Wallet attribution is self-disclosed only — never inferred.
+        Prices are real, Merkle-proven FTSO anchor feeds on Coston2 testnet. Callers labelled
+        &ldquo;fictional&rdquo; are seeded demo data; the rest are real public accounts whose
+        posts are fetched and shown unmodified. Wallet attribution is self-disclosed only —
+        never inferred.
       </p>
     </main>
   );

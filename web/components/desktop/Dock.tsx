@@ -24,6 +24,7 @@ const APPS: { app: AppId; name: string }[] = [
   { app: "portfolio", name: "Portfolio" },
   { app: "wallet", name: "Wallet" },
   { app: "about", name: "About" },
+  { app: "pitch", name: "Pitch" },
 ];
 
 export function Dock() {

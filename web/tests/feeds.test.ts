@@ -27,7 +27,33 @@ describe("priceable-asset gate", () => {
   });
 
   it("returns null for an asset FTSO does not carry", () => {
-    expect(resolveFeed("PEPE")).toBeNull();
+    // ⚠️ These were *probed* against the Coston2 DA Layer, not assumed. TIA and
+    // MATIC are real, widely-quoted tickers that Coston2 simply does not carry
+    // (MATIC migrated to POL, which it does carry) — which is the case that
+    // matters, because a plausible ticker is exactly what a caller will name.
+    // This test previously used PEPE, and started failing the moment the feed
+    // list was widened: PEPE turned out to be carried. Re-probe before editing.
+    expect(resolveFeed("TIA")).toBeNull();
+    expect(resolveFeed("MATIC")).toBeNull();
+    expect(resolveFeed("BOME")).toBeNull();
     expect(resolveFeed(null)).toBeNull();
+  });
+
+  it("resolves token names callers actually write, not just tickers", () => {
+    // Measured: a model returned "CHAINLINK" for a real Chainlink call, which
+    // made a priceable call unpriceable. Callers write names far more often
+    // than cashtags.
+    expect(resolveFeed("Chainlink")).toBe(resolveFeed("LINK"));
+    expect(resolveFeed("solana")).toBe(resolveFeed("SOL"));
+    expect(resolveFeed("Bitcoin")).toBe(resolveFeed("BTC"));
+    // FXRP is XRP through the FAssets peg, and must score against the same feed.
+    expect(resolveFeed("FXRP")).toBe(XRP_USD);
+  });
+
+  it("carries the widened set, including the benchmark", () => {
+    expect(resolveFeed("$SOL")).not.toBeNull();
+    expect(resolveFeed("pepe")).not.toBeNull();
+    expect(resolveFeed("POL")).not.toBeNull();
+    expect(resolveFeed("XRP")).toBe(XRP_USD);
   });
 });

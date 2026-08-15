@@ -26,6 +26,8 @@ const GO: { app: AppId; name: string }[] = [
   { app: "leaderboard", name: "Leaderboard" },
   { app: "allocations", name: "Allocations" },
   { app: "portfolio", name: "Portfolio" },
+  { app: "wallet", name: "Wallet" },
+  { app: "pitch", name: "Pitch" },
 ];
 
 export function MenuBar() {
@@ -323,8 +325,10 @@ function AboutPanel({ onClose }: { onClose: () => void }) {
         </dl>
 
         <p className="about-note">
-          Prices are real, Merkle-proven FTSO anchor feeds on Coston2 testnet. Callers shown are
-          fictional demo data. Wallet attribution is self-disclosed only — never inferred.
+          Prices are real, Merkle-proven FTSO anchor feeds on Coston2 testnet. Callers labelled
+          &ldquo;fictional&rdquo; are seeded demo data; the rest are real public accounts whose posts
+          are fetched and shown unmodified. Wallet attribution is self-disclosed only — never
+          inferred.
         </p>
 
         <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 18 }}>

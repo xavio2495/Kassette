@@ -30,6 +30,7 @@ import { PortfolioApp } from "../apps/PortfolioApp";
 import { DossierApp } from "../apps/DossierApp";
 import { AboutApp } from "../apps/AboutApp";
 import { WalletApp } from "../apps/WalletApp";
+import { PitchApp } from "../apps/PitchApp";
 
 /** Subscribe to the window manager. */
 export function useDesktop() {
@@ -46,6 +47,7 @@ export function pathFor(win: WindowState | null): string {
   // desk, not an address anyone should land on cold.
   if (win.app === "about") return "/";
   if (win.app === "wallet") return "/wallet";
+  if (win.app === "pitch") return "/pitch";
   return `/${win.app}`;
 }
 
@@ -65,6 +67,8 @@ function content(win: WindowState) {
       return <AboutApp />;
     case "wallet":
       return <WalletApp />;
+    case "pitch":
+      return <PitchApp />;
   }
 }
 
@@ -83,7 +87,7 @@ function SnapPreview() {
 }
 
 /** The apps the number keys open, in Dock order. */
-const QUICK: AppId[] = ["terminal", "leaderboard", "allocations", "portfolio", "wallet", "about"];
+const QUICK: AppId[] = ["terminal", "leaderboard", "allocations", "portfolio", "wallet", "about", "pitch"];
 
 /**
  * Window management from the keyboard, in the shape a tiling WM uses. Alt is

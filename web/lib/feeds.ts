@@ -20,11 +20,67 @@ export const XRP_USD = feedId("XRP/USD");
 // index, it cannot quote an arbitrary token — so a call on a symbol absent here is
 // `unpriceable` rather than mispriced. Deliberately small: widen it only with a
 // verified feed.
-export const FEEDS: Record<string, `0x${string}`> = {
-  XRP: XRP_USD,
-  FLR: feedId("FLR/USD"),
-  BTC: feedId("BTC/USD"),
-  ETH: feedId("ETH/USD"),
+export const FEEDS: Record<string, `0x${string}`> = Object.fromEntries(
+  [
+    // ⚠️ Every pair here was verified live against the Coston2 DA Layer
+    // (`/api/v0/ftso/anchor-feeds-with-proof`) on 2026-08-15 — each one returned
+    // a value and decimals for a real voting round. Do not add a pair by
+    // guessing its name: a feed id is derived from the string, so an unlisted
+    // pair yields a well-formed id that simply never resolves, and the call
+    // silently becomes `unpriceable` rather than erroring.
+    //
+    // Probed and NOT carried on Coston2: MATIC (migrated to POL), TON, INJ,
+    // SEI, TIA, FTM, CRV.
+    "XRP", "FLR", "BTC", "ETH", "SOL", "ADA", "DOGE", "AVAX",
+    "POL", "LTC", "LINK", "DOT", "BNB", "TRX", "XLM", "ALGO",
+    "ATOM", "FIL", "ARB", "OP", "SGB", "USDC", "USDT", "SHIB",
+    "PEPE", "BCH", "UNI", "NEAR", "AAVE", "APT", "SUI", "ICP",
+    "HBAR", "RUNE", "JUP", "WIF", "BONK", "ENA", "ONDO", "RENDER",
+    "ETC",
+  ].map((sym) => [sym, feedId(`${sym}/USD`)])
+);
+
+/**
+ * Token names that callers (and models) use in place of the ticker.
+ *
+ * ⚠️ Measured, not imagined: llama-3.3-70b classifying "Chainlink under $10 has
+ * been a GOOD BUY" returned `asset_symbol: "CHAINLINK"`, which resolved to no
+ * feed and made a real, priceable call `unpriceable`. Callers write "Chainlink"
+ * and "Solana" far more often than "$LINK" and "$SOL", so this is a property of
+ * the input, not of one model.
+ *
+ * Only unambiguous names whose ticker is actually carried. A name that could
+ * mean two assets does not belong here — a wrong feed is far worse than none.
+ */
+const ALIASES: Record<string, string> = {
+  BITCOIN: "BTC",
+  ETHEREUM: "ETH",
+  RIPPLE: "XRP",
+  SOLANA: "SOL",
+  CARDANO: "ADA",
+  DOGECOIN: "DOGE",
+  CHAINLINK: "LINK",
+  POLKADOT: "DOT",
+  AVALANCHE: "AVAX",
+  LITECOIN: "LTC",
+  STELLAR: "XLM",
+  POLYGON: "POL",
+  ALGORAND: "ALGO",
+  COSMOS: "ATOM",
+  FILECOIN: "FIL",
+  ARBITRUM: "ARB",
+  OPTIMISM: "OP",
+  UNISWAP: "UNI",
+  HEDERA: "HBAR",
+  FLARE: "FLR",
+  SONGBIRD: "SGB",
+  THORCHAIN: "RUNE",
+  JUPITER: "JUP",
+  APTOS: "APT",
+  RENDER: "RENDER",
+  // FXRP is the Flare-side representation of XRP and is scored against XRP/USD
+  // via the FAssets peg (IDEA.md §7).
+  FXRP: "XRP",
 };
 
 // Models emit the cashtag form ("$XRP") and stray whitespace; normalize before
@@ -32,7 +88,8 @@ export const FEEDS: Record<string, `0x${string}`> = {
 // ⚠️ Trim BEFORE stripping the cashtag. Anchoring `^\$` first means a leading
 // space leaves the `$` in place and the symbol reads as unpriceable.
 export function normalizeSymbol(symbol: string): string {
-  return symbol.trim().replace(/^\$/, "").trim().toUpperCase();
+  const bare = symbol.trim().replace(/^\$/, "").trim().toUpperCase();
+  return ALIASES[bare] ?? bare;
 }
 
 export function resolveFeed(symbol: string | null): `0x${string}` | null {

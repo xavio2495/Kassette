@@ -1,0 +1,39 @@
+{
+  "_comment": [
+    "Real, public X accounts that post XRP/FXRP calls. `scripts/ingest-x.ts` reads this list.",
+    "",
+    "\u26a0\ufe0f These are real people, so three rules apply that do not apply to seeded data:",
+    "  1. Only their own posts count. Retweets and replies are dropped by the ingester \u2014",
+    "     amplifying someone else's call is not making one, and scoring it against them",
+    "     would be a fabricated attribution.",
+    "  2. No wallet goes in without a self-disclosure URL (HANDOFF.md \u00a72.2). None of these",
+    "     have one here, so `wallet` stays null and said-vs-did correctly reports",
+    "     'no wallet disclosed' rather than inferring anything.",
+    "  3. Every stored post keeps its real platform id and URL, and `synthetic = 0`, so the",
+    "     UI links to the actual post and a reader can check the extraction against it.",
+    "",
+    "To add someone: append a handle. To remove them from the demo, delete the entry and",
+    "re-run the ingester with --reset."
+  ],
+  "handles": [
+    "RippleXrpie",
+    "XRPcryptowolf",
+    "BankXRP",
+    "Coachjv_",
+    "allthemoney",
+    "sentosumosaba",
+    "cryptodylnews",
+    "Vet_X0",
+    "mrnguyen007",
+    "cobb_XRPL",
+    "beyond_broke",
+    "masonVersluis",
+    "zachRector7",
+    "imcameronscrubs",
+    "NFAdotcrypto",
+    "BCBacker",
+    "360_trader",
+    "thebearablebull",
+    "CryptoXRPSignal"
+  ]
+}

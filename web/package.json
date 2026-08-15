@@ -10,7 +10,9 @@
     "test": "vitest run",
     "seed": "tsx scripts/seed-demo.ts",
     "typecheck": "tsc --noEmit",
-    "e2e": "tsx scripts/e2e.ts"
+    "e2e": "tsx scripts/e2e.ts",
+    "snapshot": "tsx scripts/snapshot-db.ts",
+    "ingest": "tsx scripts/ingest-x.ts"
   },
   "dependencies": {
     "next": "16.3.0",
@@ -22,11 +24,13 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^24.13.3",
+    "@types/pngjs": "^6.0.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "playwright": "^1.62.1",
+    "pngjs": "^7.0.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.11",
     "typescript": "^5",

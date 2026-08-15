@@ -117,8 +117,14 @@ export function DeletedDiagram() {
             </text>
             {r.gone && (
               <>
-                <line x1="6" y1={y + 6} x2="314" y2={y + 6} stroke="var(--loss)" strokeWidth="1.5" />
-                <text x="110" y={y + 10} fontSize="9" fill="var(--loss)" letterSpacing="1.4">
+                {/* ⚠️ Two short rules, not one across the row. A single strike
+                    ran straight through its own annotation, which at slide size
+                    made both unreadable. These cross the ticker and the number —
+                    the two things the deletion was meant to erase — and leave
+                    the middle clear for the label. */}
+                <line x1="6" y1={y + 6} x2="62" y2={y + 6} stroke="var(--loss)" strokeWidth="1.5" />
+                <line x1="252" y1={y + 6} x2="314" y2={y + 6} stroke="var(--loss)" strokeWidth="1.5" />
+                <text x="76" y={y + 10} fontSize="8.5" fill="var(--loss)" letterSpacing="1.2">
                   DELETED — STILL COUNTED
                 </text>
               </>
@@ -136,34 +142,120 @@ export function DeletedDiagram() {
 /**
  * The settlement leg: one XRPL payment carries the instruction, and the chain
  * checks it. Drawn as a chain because a break anywhere in it is the whole risk.
+ *
+ * ⚠️ HTML, not SVG, unlike its neighbours. SVG text does not wrap and cannot be
+ * measured by the layout, so every label here overflowed its box and
+ * "carries the instruction" collided with "on Coston2" — and the fixed viewBox
+ * left a third of the cell empty underneath. Three labelled boxes in a row is a
+ * layout, not a drawing.
  */
-export function SettlementDiagram() {
+export function SettlementDiagram({ compact = false }: { compact?: boolean } = {}) {
   const steps = [
-    { t: "XRPL PAYMENT", s: "you sign" },
-    { t: "MEMO", s: "carries the instruction" },
-    { t: "FXRP POSITION", s: "on Coston2" },
+    { t: "XRPL Payment", s: "you sign it", first: true },
+    { t: "Memo", s: "carries the instruction" },
+    { t: "FXRP position", s: "on Coston2" },
   ];
   return (
-    <svg viewBox="0 0 320 120" role="img" aria-label="A signed XRPL payment carrying an instruction that becomes an FXRP position on Flare" style={{ width: "100%", height: "100%", display: "block" }}>
-      {steps.map((step, i) => {
-        const x = 6 + i * 106;
-        return (
-          <g key={step.t}>
-            <rect x={x} y="34" width="94" height="42" rx="5" fill="none" stroke={i === 0 ? "var(--accent)" : "var(--ink)"} strokeWidth="1.5" />
-            <text x={x + 10} y="56" fontSize="9.5" fill={i === 0 ? "var(--accent)" : "var(--ink)"} letterSpacing="0.8">
-              {step.t}
-            </text>
-            <text x={x + 10} y="69" fontSize="9" fill="var(--faint)" letterSpacing="0.4">
-              {step.s}
-            </text>
-            {i < steps.length - 1 && (
-              <path d={`M${x + 96} 55 h8 m-3 -3 l3 3 l-3 3`} {...STROKE} stroke="var(--g-45)" strokeWidth="1.5" />
-            )}
-          </g>
-        );
-      })}
-      <text x="6" y="20" fontSize="9" fill="var(--faint)" letterSpacing="1.4">ONE CALL · ONE CONFIRMATION</text>
-      <text x="6" y="100" fontSize="9" fill="var(--faint)" letterSpacing="1.4">NOTHING STANDING · NOTHING UNATTENDED</text>
-    </svg>
+    <figure className={`chain${compact ? " chain-compact" : ""}`} aria-label="A signed XRPL payment carrying an instruction that becomes an FXRP position on Flare">
+      {/* The captions are dropped in `compact`: on the pitch slide the prose
+          beside the figure already says both, and repeating them there pushed
+          the chain out of its box and into the heading below it. */}
+      {!compact && <figcaption className="label chain-cap">one call · one confirmation</figcaption>}
+      <div className="chain-row">
+        {steps.map((step, i) => (
+          <div key={step.t} className="chain-link" data-first={step.first ? "true" : "false"}>
+            {i > 0 && <span className="chain-arrow" aria-hidden />}
+            <span className="chain-t">{step.t}</span>
+            <span className="chain-s">{step.s}</span>
+          </div>
+        ))}
+      </div>
+      {!compact && <p className="label chain-cap">nothing standing · nothing unattended</p>}
+    </figure>
+  );
+}
+
+/**
+ * The chain of custody: what each link proves, and the one thing it refuses.
+ *
+ * The refusal is the point of the picture. FCE-B recomputing the hash and
+ * declining to classify text FCE-A never attested is what stops anyone feeding
+ * the second enclave arbitrary text and getting a TEE-signed extraction of a
+ * post that never existed.
+ */
+export function CustodyDiagram() {
+  const links = [
+    { k: "FCE-A", t: "fetches under credential", p: "signs the exact text it saw" },
+    { k: "FCE-B", t: "recomputes the hash", p: "refuses to classify a mismatch" },
+    { k: "Registry", t: "recovers both signers", p: "checks them against registered machines" },
+  ];
+  return (
+    <figure className="custody">
+      {links.map((l, i) => (
+        <div key={l.k} className="custody-link">
+          <div className="custody-head">
+            <span className="custody-k">{l.k}</span>
+            {i < links.length - 1 && <span className="custody-flow" aria-hidden>↓</span>}
+          </div>
+          <div className="custody-t">{l.t}</div>
+          <div className="custody-p">{l.p}</div>
+        </div>
+      ))}
+      <div className="custody-seal">
+        <span className="label">bound to</span>
+        <span className="tnum">call_id + content_hash</span>
+      </div>
+    </figure>
+  );
+}
+
+/**
+ * The four primitives as a stack, each labelled with what breaks without it.
+ * "What breaks" rather than "what it is": a primitive that can be removed with
+ * no consequence was decoration, and this is the slide that has to prove none
+ * of them were.
+ */
+export function StackDiagram() {
+  const layers = [
+    { k: "Smart Accounts + FXRP", w: "no way to act on the verdict", pct: 100 },
+    { k: "FCC — two enclaves", w: "the post is whatever we say it was", pct: 82 },
+    { k: "FDC — Web2Json", w: "authorship nobody can re-check", pct: 64 },
+    { k: "FTSO — anchor feeds", w: "no score, only opinion", pct: 46 },
+  ];
+  return (
+    <figure className="stack">
+      {layers.map((l) => (
+        <div key={l.k} className="stack-row">
+          <div className="stack-bar" style={{ width: `${l.pct}%` }}>
+            <span className="stack-k">{l.k}</span>
+          </div>
+          <span className="stack-w">without it: {l.w}</span>
+        </div>
+      ))}
+    </figure>
+  );
+}
+
+/**
+ * What the build refuses to do, drawn as struck-through capability rather than a
+ * list of features. Each one is a constraint that buys a property back.
+ */
+export function LimitsDiagram() {
+  const rows = [
+    { no: "standing delegation", yes: "one signed Payment per call" },
+    { no: "inferred wallets", yes: "self-disclosed, with the URL" },
+    { no: "mainnet funds", yes: "Coston2 testnet only" },
+    { no: "a model in the score", yes: "arithmetic over proven prices" },
+  ];
+  return (
+    <figure className="limits">
+      {rows.map((r) => (
+        <div key={r.no} className="limits-row">
+          <span className="limits-no">{r.no}</span>
+          <span className="limits-arrow" aria-hidden>→</span>
+          <span className="limits-yes">{r.yes}</span>
+        </div>
+      ))}
+    </figure>
   );
 }

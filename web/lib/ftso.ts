@@ -1,8 +1,8 @@
-// The single price seam for the whole app (the reference's lib/graph.ts, on Flare
-// rails). Historical prices come from FTSO Scaling anchor feeds via the Data
-// Availability Layer, not from getFeedById — that returns only the current
-// value. Each anchor feed carries a Merkle proof verifiable on-chain with
-// ftsoV2.verifyFeedData, so a stored mark can prove itself later.
+// The single price seam for the whole app. Historical prices come from FTSO
+// Scaling anchor feeds via the Data Availability Layer, not from getFeedById —
+// that returns only the current value. Each anchor feed carries a Merkle proof
+// verifiable on-chain with ftsoV2.verifyFeedData, so a stored mark can prove
+// itself later.
 //
 // Docs: dev.flare.network/ftso/scaling/getting-started
 
@@ -92,12 +92,15 @@ export async function fspStatus(): Promise<FspStatus> {
 // caller that paced itself would still burst within a single markCall. Only 429 and
 // 5xx are retried — a 4xx means the request is wrong and repeating it just wastes
 // the very budget being conserved.
-export const ANCHOR_RETRIES = 5;
+// Raised from 5 on 2026-08-14: a full `npm run seed --reset` exhausted the old
+// ~31s budget at call 8 of 10 and left a half-priced database. The seeder also
+// paces itself now; these two together are the workaround for the missing key.
+export const ANCHOR_RETRIES = 7;
 
 function retryDelayMs(attempt: number, retryAfter: string | null): number {
   const header = retryAfter ? Number(retryAfter) : NaN;
   if (Number.isFinite(header) && header > 0) return Math.min(header * 1000, 30_000);
-  return Math.min(1000 * 2 ** attempt, 16_000); // 1s, 2s, 4s, 8s, 16s
+  return Math.min(1000 * 2 ** attempt, 30_000); // 1s, 2s, 4s, 8s, 16s, 30s, 30s
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

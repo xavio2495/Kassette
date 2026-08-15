@@ -8,6 +8,7 @@ import {
   lotsFor,
   xrplMemoData,
   XRPL_MEMO_MAX_BYTES,
+  COSTON2_WALLET_ID,
 } from "../lib/smart-accounts";
 
 // The byte layouts are fixed by MasterAccountController, so getting one wrong
@@ -19,6 +20,8 @@ describe("encodePaymentReference", () => {
     // From the Smart Accounts payment-reference spec: instruction 0x01,
     // wallet 0, value 10, recipient 0xf5488132…131d.
     const ref = encodePaymentReference(0x01, 10n, {
+      // walletId 0 is what the *spec example* uses; Coston2's real one is 248.
+      walletId: 0,
       params: "f5488132432118596fa13800b68df4c0ff25131d",
     });
     expect(ref).toBe("0x01000000000000000000000af5488132432118596fa13800b68df4c0ff25131d");
@@ -49,6 +52,25 @@ describe("encodeRedeemInstruction", () => {
     expect(ref.slice(6, 26)).toBe("00000000000000000003");
   });
 
+  /**
+   * ⭐ Pinned against Flare's own CLI, not against the docs.
+   *
+   *   $ ./smart_accounts.py encode fxrp-redeem --wallet-id 0 --value 1
+   *   0x02f8000000000000000000010000000000000000000000000000000000000000
+   *
+   * Note what that command line proves: the CLI was *asked* for wallet 0 and
+   * emitted 0xf8 anyway, because it substitutes a per-chain constant. Kassette
+   * encoded wallet 0 until this was caught by rehearsal on 2026-08-14, which
+   * produces a well-formed reference the operator does not recognise — the exact
+   * failure mode this file's header warns about.
+   */
+  it("uses Coston2's wallet id, matching smart-accounts-cli byte for byte", () => {
+    expect(COSTON2_WALLET_ID).toBe(248);
+    expect(encodeRedeemInstruction(1n)).toBe(
+      "0x02f8000000000000000000010000000000000000000000000000000000000000"
+    );
+  });
+
   // A zero-lot redemption is a Payment that costs a fee and does nothing.
   it("refuses a zero-lot redemption", () => {
     expect(() => encodeRedeemInstruction(0n)).toThrow(/at least one lot/);
@@ -57,7 +79,7 @@ describe("encodeRedeemInstruction", () => {
 
 describe("encodeMemoCustomInstruction", () => {
   it("prefixes the 10-byte 0xFF header before the userOp payload", () => {
-    const memo = encodeMemoCustomInstruction("0xdeadbeef", { executorFeeUBA: 1n });
+    const memo = encodeMemoCustomInstruction("0xdeadbeef", { walletId: 0, executorFeeUBA: 1n });
     expect(memo.slice(2, 4)).toBe("ff"); // opcode
     expect(memo.slice(4, 6)).toBe("00"); // wallet id
     expect(memo.slice(6, 22)).toBe("0000000000000001"); // 8-byte fee

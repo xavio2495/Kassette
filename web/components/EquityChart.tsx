@@ -18,8 +18,8 @@ import {
 // properties for animation timing, so the curve is duplicated here).
 const EASE_OUT_EXPO = "cubic-bezier(0.16,1,0.3,1)";
 
-// The benchmark leg is XRP, not the reference's ETH: Kassette scores every call
-// against "what if you had ignored them and held XRP", written for every call
+// The benchmark leg is XRP: Kassette scores every call against "what if you had
+// ignored them and held XRP", written for every call
 // including XRP ones so the two totals cover the same legs (lib/marks.ts).
 export type EquityPoint = {
   date: string;
@@ -28,9 +28,13 @@ export type EquityPoint = {
 };
 
 /**
- * Equity curve for a caller's track record, styled to the dither / 1-bit
- * forensic system: a crisp winning line over a halftone-dithered fill that
- * dissolves toward the baseline, grid + axes in mono, tooltip as a .panel.
+ * Equity curve for a caller's track record.
+ *
+ * Two lines and one wash: the caller's cumulative P&L in the money colour, the
+ * buy-and-hold benchmark as a neutral dashed line underneath it, and a fill
+ * that fades out toward the baseline so the area reads as magnitude rather than
+ * as a second series. The benchmark is drawn first so the caller's line is
+ * never the one obscured.
  */
 export function EquityCurveChart({
   data,
@@ -43,44 +47,19 @@ export function EquityCurveChart({
 }) {
   const uid = useId().replace(/[:]/g, "");
   const lineColor = positive ? "var(--gain)" : "var(--loss)";
-  const fineId = `dither-fine-${uid}`;
-  const coarseId = `dither-coarse-${uid}`;
-  const topFadeId = `dither-fade-top-${uid}`;
-  const bottomFadeId = `dither-fade-bottom-${uid}`;
+  const fillId = `curve-fill-${uid}`;
 
   return (
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart data={data} margin={{ top: 10, right: 12, bottom: 0, left: 0 }}>
         <defs>
-          {/* fine halftone dots — dominant near the line. Series-color dots read
-              dark on the paper bg; opacity trimmed so the field stays a quiet
-              texture under the crisp line rather than a loud color wash. */}
-          <pattern id={fineId} patternUnits="userSpaceOnUse" width="3" height="3">
-            <circle cx="1.5" cy="1.5" r="0.55" fill={lineColor} fillOpacity={0.85} />
-          </pattern>
-          {/* coarse halftone dots — dominant near the baseline */}
-          <pattern id={coarseId} patternUnits="userSpaceOnUse" width="7" height="7">
-            <circle cx="3.5" cy="3.5" r="0.9" fill={lineColor} fillOpacity={0.7} />
-          </pattern>
-          {/* opacity gradients that fade the two dot layers in opposite
-              directions, so the fill reads as a dither field that thins out
-              toward zero rather than a flat texture */}
-          <linearGradient id={topFadeId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#fff" stopOpacity="0.9" />
-            <stop offset="75%" stopColor="#fff" stopOpacity="0.15" />
-            <stop offset="100%" stopColor="#fff" stopOpacity="0" />
+          {/* A single wash under the line, fading to nothing at the baseline —
+              enough to give the curve weight, not enough to become a shape the
+              eye reads on its own. */}
+          <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={lineColor} stopOpacity="0.16" />
+            <stop offset="100%" stopColor={lineColor} stopOpacity="0" />
           </linearGradient>
-          <linearGradient id={bottomFadeId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#fff" stopOpacity="0" />
-            <stop offset="60%" stopColor="#fff" stopOpacity="0.2" />
-            <stop offset="100%" stopColor="#fff" stopOpacity="0.55" />
-          </linearGradient>
-          <mask id={`mask-top-${uid}`}>
-            <rect width="100%" height="100%" fill={`url(#${topFadeId})`} />
-          </mask>
-          <mask id={`mask-bottom-${uid}`}>
-            <rect width="100%" height="100%" fill={`url(#${bottomFadeId})`} />
-          </mask>
         </defs>
 
         <CartesianGrid stroke="var(--line)" strokeDasharray="2 3" vertical={false} />
@@ -100,30 +79,15 @@ export function EquityCurveChart({
           width={56}
           tickFormatter={(v: number) => `$${v.toLocaleString()}`}
         />
-        <Tooltip content={DitherTooltip} cursor={{ stroke: "var(--line-strong)", strokeDasharray: "2 2" }} />
+        <Tooltip content={CurveTooltip} cursor={{ stroke: "var(--line-strong)", strokeDasharray: "2 2" }} />
 
-        {/* dithered fill — two halftone layers under the crisp line, no stroke */}
         <Area
           type="monotone"
           dataKey="call"
           stroke="none"
-          fill={`url(#${fineId})`}
-          mask={`url(#mask-top-${uid})`}
+          fill={`url(#${fillId})`}
           isAnimationActive
-          animationDuration={1200}
-          animationEasing={EASE_OUT_EXPO}
-          activeDot={false}
-          dot={false}
-          legendType="none"
-        />
-        <Area
-          type="monotone"
-          dataKey="call"
-          stroke="none"
-          fill={`url(#${coarseId})`}
-          mask={`url(#mask-bottom-${uid})`}
-          isAnimationActive
-          animationDuration={1200}
+          animationDuration={900}
           animationEasing={EASE_OUT_EXPO}
           activeDot={false}
           dot={false}
@@ -179,7 +143,7 @@ function EndpointDot({ cx, cy, color }: { cx?: number; cy?: number; color: strin
   );
 }
 
-function DitherTooltip({ active, payload, label }: TooltipContentProps) {
+function CurveTooltip({ active, payload, label }: TooltipContentProps) {
   if (!active || !payload || payload.length === 0) return null;
   return (
     <div

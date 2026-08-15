@@ -26,6 +26,24 @@ export const OP_MEMO_CUSTOM_INSTRUCTION = 0xff;
 export const OP_FXRP_REDEEM = 0x02;
 
 /**
+ * Wallet id for Coston2 — byte 1 of every payment reference.
+ *
+ * ⚠️ NOT zero, and this was wrong here until a CLI rehearsal on 2026-08-14. The Smart
+ * Accounts docs say "use 0 if unassigned", which reads like a safe default and is not one:
+ * Flare's own `smart-accounts-cli` **ignores** whatever `--wallet-id` you pass and
+ * substitutes a per-chain constant — 248 (`0xf8`) on Coston2, 120 (`0x78`) on Flare
+ * mainnet (`configuration/settings.py`). A reference encoded with 0 does not match the
+ * operator's wallet.
+ *
+ * ⚠️ This is the one parameter in this build that is hardcoded rather than resolved,
+ * against HANDOFF.md §2.5. That is not a shortcut: `IMasterAccountController` exposes
+ * `getXrplProviderWallets()` (addresses) and no wallet-id getter at all, so there is no
+ * live source to read. Flare's own tooling hardcodes it the same way. If a redemption
+ * stops being picked up, check this against the CLI's config before anything else.
+ */
+export const COSTON2_WALLET_ID = 248;
+
+/**
  * XRPL caps a memo at ~1024 bytes, which is the whole reason `0xFE` (commit a
  * hash, deliver the payload off-chain) exists. Kassette uses `0xFF` because one
  * position change is a single small call and standing up an executor service for
@@ -66,7 +84,7 @@ function toBigEndian(value: bigint, bytes: number, label: string): string {
  * The 32-byte payment reference shared by every non-custom instruction.
  *
  *   byte 0      instruction id
- *   byte 1      wallet id (0 when the operator has not assigned one)
+ *   byte 1      wallet id — see COSTON2_WALLET_ID; it is NOT 0 on Coston2
  *   bytes 2-11  value, 10 bytes big-endian
  *   bytes 12+   instruction-specific parameters, right-padded to 32 bytes
  */
@@ -75,7 +93,7 @@ export function encodePaymentReference(
   value: bigint,
   opts: { walletId?: number; params?: string } = {}
 ): `0x${string}` {
-  const { walletId = 0, params = "" } = opts;
+  const { walletId = COSTON2_WALLET_ID, params = "" } = opts;
   if (!Number.isInteger(instructionId) || instructionId < 0 || instructionId > 0xff) {
     throw new Error("instructionId must be a single byte");
   }
@@ -100,7 +118,7 @@ export function encodePaymentReference(
  * not silently round for them, because silently redeeming less than the user
  * asked for is exactly the kind of quiet wrongness the rest of this app refuses.
  */
-export function encodeRedeemInstruction(lots: bigint, walletId = 0): `0x${string}` {
+export function encodeRedeemInstruction(lots: bigint, walletId = COSTON2_WALLET_ID): `0x${string}` {
   if (lots <= 0n) throw new Error("redeem requires at least one lot");
   return encodePaymentReference(OP_FXRP_REDEEM, lots, { walletId });
 }
@@ -121,7 +139,7 @@ export function encodeMemoCustomInstruction(
   userOpData: string,
   opts: { walletId?: number; executorFeeUBA?: bigint } = {}
 ): `0x${string}` {
-  const { walletId = 0, executorFeeUBA = 0n } = opts;
+  const { walletId = COSTON2_WALLET_ID, executorFeeUBA = 0n } = opts;
   const payload = assertHex(userOpData, "userOpData");
   if (payload.length === 0) throw new Error("userOpData is empty");
 
@@ -181,11 +199,17 @@ function ceilDiv(a: bigint, b: bigint): bigint {
 /**
  * The XRP a user must send to the Core Vault to net-mint `netMintUBA`.
  *
- * ⚠️ DERIVED FROM DOCUMENTATION, NOT FROM A VERIFIED TRANSACTION. The Dev Hub
- * states both fees are "deducted from the underlying payment amount", with the
- * minting fee "a percentage of the received amount (in BIPS), with a minimum
- * floor" — so the percentage applies to the total sent, not to the net, which
- * makes it circular and is why this solves rather than multiplies:
+ * ⭐ CONFIRMED BY A REAL MINT on 2026-08-14. Sending exactly this function's output
+ * for one lot — 10,200,000 drops, the floor branch — minted exactly 10.000000 FXRP
+ * to the personal account on Coston2. XRPL testnet tx
+ * `22B70E48B940FC58042DEB2ADBEDE24F38C54044A55751857CD8E19440EE24FE`, ~2 minutes
+ * from Payment to balance. Both the algebra and the branch choice are right; keep
+ * this note until something changes them.
+ *
+ * The Dev Hub states both fees are "deducted from the underlying payment amount",
+ * with the minting fee "a percentage of the received amount (in BIPS), with a
+ * minimum floor" — so the percentage applies to the total sent, not to the net,
+ * which makes it circular and is why this solves rather than multiplies:
  *
  *     total = net + fee + executor,  fee = max(total × bips / 10000, minimum)
  *
@@ -195,9 +219,11 @@ function ceilDiv(a: bigint, b: bigint): bigint {
  * The floor dominates for small mints — at 25 bips and a 0.1 XRP floor, the
  * percentage only overtakes it above ~40 XRP.
  *
- * ⛔ Until one real direct mint confirms this, the UI must present the result as
- * a breakdown to check rather than a number to trust. Sending too little does
- * not bounce: the mint reverts on Flare and the XRP sits at the Core Vault.
+ * The UI still shows the breakdown rather than a bare total. That is no longer
+ * about doubting the arithmetic — it is because the *inputs* are governance
+ * parameters read per request, so a reader should be able to see which fee moved.
+ * Sending too little does not bounce: the mint reverts on Flare and the XRP sits
+ * at the Core Vault until a `0xE0` recovery runs.
  */
 export function directMintingPayment(netMintUBA: bigint, fees: DirectMintingFees): DirectMintingPayment {
   if (netMintUBA <= 0n) throw new Error("net mint amount must be positive");
@@ -237,4 +263,58 @@ export function ubaToDrops(uba: bigint, assetMintingDecimals: number): string {
     throw new Error(`expected 6 minting decimals to map UBA onto XRP drops, got ${assetMintingDecimals}`);
   }
   return uba.toString();
+}
+
+// ---- fade: the redemption plan ---------------------------------------------
+
+export interface FadePlan {
+  /** The operator's XRPL wallet — NOT the Core Vault. A redemption is not a mint. */
+  destination: string;
+  /** Payment `Amount` in drops: the operator's instruction fee, read live. */
+  drops: string;
+  /** The 32-byte `0x02` payment reference, as XRPL `MemoData`. */
+  memoData: string;
+  lots: bigint;
+  /** Whole FXRP this redeems — lots × lot size. */
+  fxrpRedeemed: number;
+  /** FXRP the user asked for that is below a whole lot and is NOT redeemed. */
+  remainderFxrp: number;
+}
+
+/**
+ * FADE — decrease FXRP exposure by redeeming back to XRP.
+ *
+ * ⚠️ **A fade cannot be bound to its call on-chain, and that is structural.** A copy rides
+ * on a direct mint, whose memo has room for a custom instruction calling
+ * `KassetteExecutionRegistry.record`. A redemption is instructed by a 32-byte payment
+ * *reference* — every byte is spoken for by the instruction id, wallet id and value — so
+ * there is nowhere to put a `record` call, and no second Payment may be added without
+ * breaking "one call, one confirmation, one signed Payment" (HANDOFF.md §2.3).
+ *
+ * The consequence is stated rather than papered over: a fade is a real, confirmable
+ * position change (the AssetManager emits `RedemptionRequested` naming the personal account
+ * as redeemer) whose link to the call it was motivated by exists only in Kassette's own
+ * database. A copy's link exists on-chain. Do not present them as equally evidenced.
+ */
+export function buildFadePlan(args: {
+  fxrp: number;
+  lotSizeFxrp: number;
+  operatorXrplAddress: string;
+  redeemInstructionFeeDrops: string;
+  walletId?: number;
+}): FadePlan {
+  const { lots, remainder } = lotsFor(args.fxrp, args.lotSizeFxrp);
+  if (lots <= 0n) {
+    throw new Error(
+      `redemption is lot-granular at ${args.lotSizeFxrp} FXRP per lot (read live), so ${args.fxrp} FXRP is below one lot`
+    );
+  }
+  return {
+    destination: args.operatorXrplAddress,
+    drops: args.redeemInstructionFeeDrops,
+    memoData: xrplMemoData(encodeRedeemInstruction(lots, args.walletId)),
+    lots,
+    fxrpRedeemed: Number(lots) * args.lotSizeFxrp,
+    remainderFxrp: remainder,
+  };
 }

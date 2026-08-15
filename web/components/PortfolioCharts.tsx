@@ -19,8 +19,8 @@ import {
   type TooltipContentProps,
 } from "recharts";
 
-// Portfolio-page charts, matching the dither / 1-bit forensic system already
-// established in DitheredChart.tsx (halftone area fills) and DossierCharts.tsx
+// Portfolio-page charts, in the same construction as EquityChart.tsx: a
+// stepped line in ink, one wash beneath it, and DossierCharts.tsx
 // (pattern-filled bars, dashed-border empty states). Every chart here is built
 // to look intentional at 0, 1, or a handful of data points — this is a fresh
 // account's page, not a mature dossier.
@@ -43,10 +43,7 @@ export type DeployPoint = { label: string; amount: number };
 
 export function DeployedOverTimeChart({ points, height = 220 }: { points: DeployPoint[]; height?: number }) {
   const uid = useId().replace(/[:]/g, "");
-  const fineId = `dep-fine-${uid}`;
-  const coarseId = `dep-coarse-${uid}`;
-  const topFadeId = `dep-fade-top-${uid}`;
-  const bottomFadeId = `dep-fade-bottom-${uid}`;
+  const fillId = `dep-fill-${uid}`;
 
   if (points.length === 0) {
     return <EmptyChart label="no capital deployed yet · executed trades will chart here" height={height} />;
@@ -73,28 +70,12 @@ export function DeployedOverTimeChart({ points, height = 220 }: { points: Deploy
       <ResponsiveContainer width="100%" height={height}>
         <ComposedChart data={series} margin={{ top: 10, right: 12, bottom: 0, left: 0 }}>
           <defs>
-            <pattern id={fineId} patternUnits="userSpaceOnUse" width="3" height="3">
-              <circle cx="1.5" cy="1.5" r="0.55" fill="var(--ink)" fillOpacity={0.85} />
-            </pattern>
-            <pattern id={coarseId} patternUnits="userSpaceOnUse" width="7" height="7">
-              <circle cx="3.5" cy="3.5" r="0.9" fill="var(--ink)" fillOpacity={0.7} />
-            </pattern>
-            <linearGradient id={topFadeId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#fff" stopOpacity="0.9" />
-              <stop offset="75%" stopColor="#fff" stopOpacity="0.15" />
-              <stop offset="100%" stopColor="#fff" stopOpacity="0" />
+            {/* One wash, fading to nothing at the baseline. See the note in
+                EquityChart.tsx: the area carries magnitude, not identity. */}
+            <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--ink)" stopOpacity="0.14" />
+              <stop offset="100%" stopColor="var(--ink)" stopOpacity="0" />
             </linearGradient>
-            <linearGradient id={bottomFadeId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#fff" stopOpacity="0" />
-              <stop offset="60%" stopColor="#fff" stopOpacity="0.2" />
-              <stop offset="100%" stopColor="#fff" stopOpacity="0.55" />
-            </linearGradient>
-            <mask id={`dep-mask-top-${uid}`}>
-              <rect width="100%" height="100%" fill={`url(#${topFadeId})`} />
-            </mask>
-            <mask id={`dep-mask-bottom-${uid}`}>
-              <rect width="100%" height="100%" fill={`url(#${bottomFadeId})`} />
-            </mask>
           </defs>
 
           <CartesianGrid stroke="var(--line)" strokeDasharray="2 3" vertical={false} />
@@ -120,22 +101,9 @@ export function DeployedOverTimeChart({ points, height = 220 }: { points: Deploy
             type="stepAfter"
             dataKey="cumulative"
             stroke="none"
-            fill={`url(#${fineId})`}
-            mask={`url(#dep-mask-top-${uid})`}
+            fill={`url(#${fillId})`}
             isAnimationActive
-            animationDuration={1000}
-            animationEasing={EASE}
-            dot={false}
-            legendType="none"
-          />
-          <Area
-            type="stepAfter"
-            dataKey="cumulative"
-            stroke="none"
-            fill={`url(#${coarseId})`}
-            mask={`url(#dep-mask-bottom-${uid})`}
-            isAnimationActive
-            animationDuration={1000}
+            animationDuration={800}
             animationEasing={EASE}
             dot={false}
             legendType="none"
@@ -192,9 +160,10 @@ function DepositTooltip({ active, payload, label }: TooltipContentProps) {
 
 // ---- per-caller deployed horizontal bars ------------------------------------
 //
-// ⚠️ The reference colours these bars by realized P&L. Kassette's executions carry
-// no realized P&L — nothing in the schema records what an FXRP position was
-// later worth — so the bars are coloured by copy/fade lean instead, which is a
+// ⚠️ Colouring these bars by realized P&L would be the obvious choice and is not
+// available: Kassette's executions carry no realized P&L — nothing in the schema
+// records what an FXRP position was later worth. So the bars are coloured by
+// copy/fade lean instead, which is a
 // fact the rows actually contain. Colouring by an invented zero would read as
 // "this caller broke even".
 export type CreatorDatum = {

@@ -12,13 +12,14 @@ export function feedId(pair: string, category = CATEGORY_CRYPTO): `0x${string}` 
   return `0x${body.padEnd(42, "0")}` as `0x${string}`;
 }
 
-// The benchmark every dossier is scored against. The reference held ETH; a call on
-// XRP is scored against XRP/USD via the FAssets peg (IDEA.md §7).
+// The benchmark every dossier is scored against: a call on XRP is scored against
+// XRP/USD via the FAssets peg (IDEA.md §7).
 export const XRP_USD = feedId("XRP/USD");
 
-// The priceable-asset gate. A subgraph prices any token address; FTSO has a
-// fixed feed set, so a call on a symbol absent here is `unpriceable` rather
-// than mispriced. Deliberately small — widen it only with a verified feed.
+// The priceable-asset gate. FTSO has a fixed feed set — unlike a general price
+// index, it cannot quote an arbitrary token — so a call on a symbol absent here is
+// `unpriceable` rather than mispriced. Deliberately small: widen it only with a
+// verified feed.
 export const FEEDS: Record<string, `0x${string}`> = {
   XRP: XRP_USD,
   FLR: feedId("FLR/USD"),
@@ -28,8 +29,8 @@ export const FEEDS: Record<string, `0x${string}`> = {
 
 // Models emit the cashtag form ("$XRP") and stray whitespace; normalize before
 // lookup so extraction quirks don't read as an unpriceable asset.
-// Trim before stripping the cashtag: the reference anchored `^\$` first, so a
-// leading space left the `$` in place and the symbol read as unpriceable.
+// ⚠️ Trim BEFORE stripping the cashtag. Anchoring `^\$` first means a leading
+// space leaves the `$` in place and the symbol reads as unpriceable.
 export function normalizeSymbol(symbol: string): string {
   return symbol.trim().replace(/^\$/, "").trim().toUpperCase();
 }

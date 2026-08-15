@@ -1,6 +1,6 @@
 // Seeds a persistent kassette.db so the UI has real data to render.
 //
-//   npx tsx scripts/seed-demo.ts [--reset]
+//   npx tsx scripts/seed-demo.ts [--reset] [--force]
 //
 // ⚠️ Distinct from scripts/demo-dossier.ts, which prices the same shape of data
 // against an **in-memory** DB and prints it. That verifies the data layer; it leaves
@@ -31,6 +31,7 @@ import { buildDossier } from "../lib/dossier";
 import { fspStatus } from "../lib/ftso";
 import { resolveFeed } from "../lib/feeds";
 import { findContradictions } from "../lib/said-did";
+import { isRealTweetUrl } from "../lib/xlink";
 
 const DAY = 86400;
 const DB_PATH = process.env.DB_PATH ?? path.join(process.cwd(), "kassette.db");
@@ -103,14 +104,26 @@ function seedCaller(db: ReturnType<typeof getDb>, c: Caller, startPostId: number
   let postId = startPostId;
   for (const s of c.seeds) {
     const postedAt = now - s.daysAgo * DAY;
+
+    // ⚠️ A seeded post URL must NOT look like a real tweet id. lib/xlink.ts
+    // decides whether to link the post itself or fall back to the caller's X
+    // profile by testing for /status/<digits>, and this used to seed
+    // `1900000000000000000 + postId` — all digits, so the UI labelled an
+    // invented post "original ↗" and linked a judge straight to a 404. The
+    // handle-prefixed form is the shape xlink.ts documents for curated calls.
+    const url = `https://x.com/${c.handle}/status/${c.handle}-${postId}`;
+    if (isRealTweetUrl(url)) {
+      throw new Error(`seeded post URL looks like a real tweet: ${url}`);
+    }
+
     db.prepare(
-      "INSERT INTO posts (influencer_id, platform_post_id, content, content_hash, url, posted_at, deleted_at) VALUES (?,?,?,?,?,?,?)"
+      "INSERT INTO posts (influencer_id, platform_post_id, content, content_hash, url, posted_at, deleted_at, synthetic) VALUES (?,?,?,?,?,?,?,1)"
     ).run(
       influencerId,
       `${c.handle}-${postId}`,
       s.text,
       `0x${postId.toString(16).padStart(64, "0")}`,
-      `https://x.com/${c.handle}/status/${1900000000000000000 + postId}`,
+      url,
       postedAt,
       s.deleted ? postedAt + 3 * DAY : null
     );
@@ -146,11 +159,69 @@ function seedCaller(db: ReturnType<typeof getDb>, c: Caller, startPostId: number
   return postId;
 }
 
+/**
+ * Refuse to delete a database that holds records of things that really happened.
+ *
+ * ⚠️ Written after `--reset` silently destroyed two real executions on 2026-08-15. Seeded
+ * rows are worthless and rebuild in two minutes; rows with `synthetic = 0` are not. They
+ * describe an XRPL Payment somebody signed and an FXRP position that actually moved, and
+ * while the executions themselves survive on-chain in KassetteExecutionRegistry, the link
+ * from an on-chain record back to *which XRPL transaction paid for it* exists nowhere but
+ * here. Deleting that is unrecoverable, and it happened without a word of warning.
+ *
+ * `--force` still allows it, because a demo database is meant to be disposable — the point
+ * is that discarding real evidence should be a decision rather than a default.
+ */
+function guardRealRows() {
+  const db = getDb();
+  try {
+    const count = (table: string) => {
+      try {
+        return (db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE synthetic = 0`).get() as { n: number }).n;
+      } catch {
+        return 0; // table not created yet — nothing to lose
+      }
+    };
+    const executions = count("executions");
+    const posts = count("posts");
+    const attested = (() => {
+      try {
+        return (db.prepare("SELECT COUNT(*) AS n FROM attestations").get() as { n: number }).n;
+      } catch {
+        return 0;
+      }
+    })();
+    return { executions, posts, attested, any: executions + posts + attested > 0 };
+  } finally {
+    closeDb();
+  }
+}
+
 async function main() {
   const reset = process.argv.includes("--reset");
+  const force = process.argv.includes("--force");
   if (reset && fs.existsSync(DB_PATH)) {
+    const real = guardRealRows();
+    if (real.any && !force) {
+      console.error(`refusing to delete ${path.relative(process.cwd(), DB_PATH)} — it holds real records:`);
+      if (real.executions) console.error(`  ${real.executions} execution(s) from a signed XRPL Payment (synthetic = 0)`);
+      if (real.posts) console.error(`  ${real.posts} attested post(s) fetched by an enclave (synthetic = 0)`);
+      if (real.attested) console.error(`  ${real.attested} attestation(s) verified on-chain`);
+      console.error(`
+These are records of things that actually happened. The executions survive on-chain in
+KassetteExecutionRegistry, but the XRPL transaction each one was paid by is only recorded
+here — deleting this file loses that link for good.
+
+To rebuild them after a reset:
+  contracts:  SEED_DB=1 npx hardhat run scripts/proveChain.ts        --network coston2
+  contracts:  SEED_DB=1 npx hardhat run scripts/attestPostViaFdc.ts  --network coston2
+  a real execution needs a fresh XRPL Payment — it cannot be regenerated.
+
+Pass --force if you mean it.`);
+      process.exit(1);
+    }
     fs.rmSync(DB_PATH);
-    console.log(`removed ${path.relative(process.cwd(), DB_PATH)}`);
+    console.log(`removed ${path.relative(process.cwd(), DB_PATH)}${real.any ? " (--force: real records discarded)" : ""}`);
   }
   if (fs.existsSync(DB_PATH)) {
     console.error(`error: ${path.relative(process.cwd(), DB_PATH)} already exists — pass --reset to rebuild it`);
@@ -174,9 +245,20 @@ async function main() {
   // An "open" call is still marked: it has an entry and a latest that keeps moving.
   // Open vs settled is a status distinction, not a missing-mark one — which is why
   // markCall writes both regardless, and the ⏳ badge reads `status`.
+  // ⚠️ Sequential is necessary but was not sufficient. Each markCall makes up to
+  // four anchor-feed requests, so ten calls still burst ~forty back-to-back and
+  // the run died at call 8 with a 429 that lib/ftso's ~31s retry budget could not
+  // outlast (2026-08-14). A partial seed is worse than a slow one: it leaves the
+  // demo without executions or wallet events, because those are seeded after this
+  // loop. Pacing between calls costs ~30s and makes the run finish.
+  //
+  // This is a workaround for a missing DA Layer API key (ERRORS.md blocker 4).
+  // With a key, SEED_PACE_MS=0 is the right setting.
+  const paceMs = Number(process.env.SEED_PACE_MS ?? 3000);
   for (let id = 1; id <= total; id++) {
     const r = await markCall(id, { db, status, now });
     console.log(`  call ${String(id).padStart(2)}  ${r.status}${r.reason ? ` (${r.reason})` : ""}`);
+    if (paceMs > 0 && id < total) await new Promise((r) => setTimeout(r, paceMs));
   }
 
   // One wallet event that contradicts a live long call, so said-vs-did has a case.
@@ -189,13 +271,13 @@ async function main() {
     const posted = (db.prepare("SELECT posted_at FROM posts WHERE id = ?").get(xrpLong.post_id) as { posted_at: number })
       .posted_at;
 
-    // `token_address` is carried over from the reference ERC-20 model. On Flare the
+    // `token_address` is a carry-over from an ERC-20 shaped model. On Flare the
     // asset is identified by its FTSO feed, so the column holds the feed id — the
     // schema's UNIQUE (tx_hash, token_address, side) still does its job of stopping
     // one transfer being counted twice.
     db.prepare(
-      `INSERT INTO wallet_events (influencer_id, tx_hash, asset_symbol, token_address, side, usd_value, occurred_at)
-       VALUES (1,?,?,?,?,?,?)`
+      `INSERT INTO wallet_events (influencer_id, tx_hash, asset_symbol, token_address, side, usd_value, occurred_at, synthetic)
+       VALUES (1,?,?,?,?,?,?,1)`
     ).run(`0x${"ab".repeat(32)}`, "XRP", resolveFeed("XRP"), "sell", 27500, posted + 6 * 3600);
 
     // Run the real detector rather than asserting the contradiction by hand: the
@@ -222,30 +304,39 @@ async function main() {
     }
     console.log(`\nwallet event: sold XRP 6h after call ${xrpLong.id} → ${found.length} contradiction(s) detected`);
 
-    // A real attestation row for one call, so the receipt strip is not empty.
-    // These are the live Coston2 identities from this session — see
-    // claude-docs/MEMORY.md. Signatures are omitted rather than invented: the UI
-    // must render "not attested" honestly wherever a signature is genuinely absent.
-    db.prepare(
-      `INSERT INTO attestations (call_id, source_tee_signer, extraction_tee_signer, verified)
-       VALUES (?,?,?,1)`
-    ).run(
-      xrpLong.id,
-      "0xF1422B5610419c15f75e97887ABB03Db15504C42",
-      "0x95771A2f56FB549D5A033778FF2a665B6Ff778eB"
-    );
-    console.log(`attestation recorded for call ${xrpLong.id}`);
   }
+
+  // ⛔ NO attestation row is seeded, and that is deliberate.
+  //
+  // This script used to write one for the XRP call with `verified = 1` and two hardcoded
+  // TEE signer addresses. Every part of that was a fabrication with a real-looking surface:
+  // the post was invented, no enclave had ever seen it, no signature existed (the column
+  // was left NULL), and `verified` was simply asserted. The proof drawer rendered it as
+  // "verified on-chain: yes ✓" with working explorer links to the signers — which resolved,
+  // because the addresses were real machines. They had also been *paused* by the time
+  // anyone would have clicked.
+  //
+  // An invented post cannot have a genuine attestation: FCE-A attests what it fetched from
+  // the provider, so there is nothing to attest here. The UI already renders the honest
+  // state ("No attestation on record for this call") and says the price marks are still
+  // Merkle-proven, which is true and is the stronger claim anyway.
+  //
+  // To get a genuinely attested call into this database, run the real chain against a real
+  // post:  contracts/scripts/proveChain.ts with SEED_DB=1.
 
   // Demo executions, so /portfolio and /allocations render their populated states
   // rather than only their empty ones.
   //
   // ⚠️ These are invented, exactly like the callers and the wallet event above,
   // and they are the only rows in this database that describe an action a user
-  // supposedly took. Two rules keep that honest:
-  //   - `flare_tx_hash` is NULL and one row is left `pending`. Milestone 4 is not
-  //     wired, so no Payment was ever dispatched on Flare and claiming a Flare tx
-  //     would be the one fabrication the portfolio page cannot survive.
+  // supposedly took. Three rules keep that honest:
+  //   - `synthetic` is 1, so the UI renders the identifiers as plain text instead
+  //     of linking them to a public explorer. It used to link them, and the link
+  //     404'd — see lib/schema.sql.
+  //   - `flare_tx_hash` is NULL and one row is left `pending`. No Payment was ever
+  //     dispatched for THESE rows, so claiming a Flare tx would be the one fabrication
+  //     the portfolio page cannot survive. (Real executions do exist now — they arrive
+  //     through POST /api/executions with `synthetic = 0`.)
   //   - the XRPL account is the documentation address from xrpl.org, not a real
   //     account belonging to anyone.
   const seededExecutions: [number, "copy" | "fade", "long" | "short", string, string | null][] = [
@@ -260,8 +351,8 @@ async function main() {
     if (!exists) continue;
     db.prepare(
       `INSERT INTO executions
-         (call_id, mode, xrpl_account, xrpl_tx_hash, direction, fxrp_amount, flare_tx_hash, status, created_at)
-       VALUES (?,?,?,?,?,?,NULL,?,?)`
+         (call_id, mode, xrpl_account, xrpl_tx_hash, direction, fxrp_amount, flare_tx_hash, status, created_at, synthetic)
+       VALUES (?,?,?,?,?,?,NULL,?,?,1)`
     ).run(
       callId,
       mode,
@@ -274,7 +365,7 @@ async function main() {
     );
     seededCount++;
   }
-  console.log(`${seededCount} demo execution(s) recorded (no Flare tx — Milestone 4 is not wired)`);
+  console.log(`${seededCount} demo execution(s) recorded (seeded, no Flare tx — real ones come from /api/executions)`);
 
   console.log("");
   for (const c of CALLERS) {

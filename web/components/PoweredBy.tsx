@@ -5,11 +5,10 @@ import { useState } from "react";
 // Subtle "powered by <primitive>" attribution, rendered wherever a Flare
 // primitive does real work in the product.
 //
-// The reference version credited its sponsors (0G, The Graph, Uniswap) with logo
-// images. Kassette's equivalents are the enshrined protocols from CORE.md §5's
-// delete-Flare table, and there are no logo assets in this repo — so each mark is
-// set as a mono wordmark in the design system's own type rather than a bitmap.
-// Swapping in real artwork later means adding a `src` here and nothing else.
+// The marks are the enshrined protocols from CORE.md §5's delete-Flare table.
+// There are no logo assets in this repo, so each is set as a mono wordmark in the
+// design system's own type rather than a bitmap. Swapping in real artwork later
+// means adding a `src` here and nothing else.
 
 export type Primitive = "ftso" | "fcc" | "smart-accounts" | "fxrp" | "fdc";
 

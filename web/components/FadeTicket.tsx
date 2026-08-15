@@ -2,49 +2,62 @@
 
 // Copy / fade ticket — the follower's actual action.
 //
-// The reference version is a Uniswap Permit2 swap on Base Sepolia, signed by a
-// Privy embedded wallet with `useSendTransaction`. None of that transfers: the
-// asset is FXRP, the authorising signature is an XRPL Payment, and there is no
-// embedded wallet because there is no standing authority to hold (HANDOFF.md
-// §2.3). What ports is the ticket itself — mode toggle, size input, quote-like
-// summary, and one confirm step.
+// ⭐ The design constraint that shapes everything below: Kassette never holds a key and
+// never submits the Payment. It builds exactly one XRPL Payment and hands the bytes to the
+// user's own wallet. "Per-trade confirmation" is not a checkbox here — it is structural,
+// because the only thing that can authorise the position change is a signature Kassette
+// cannot produce (HANDOFF.md §2.3).
 //
-// ⭐ The design constraint that shapes everything below: Kassette never holds a
-// key and never submits the Payment. It builds exactly one XRPL Payment and
-// hands the bytes to the user's own wallet. "Per-trade confirmation" is not a
-// checkbox here — it is structural, because the only thing that can authorise
-// the position change is a signature Kassette cannot produce.
+// ⭐ The plan is built SERVER-side (`/api/execution-plan`), not here. Two reasons, both
+// load-bearing:
+//   - it carries a `PackedUserOperation` whose `nonce` must be read from Coston2 at build
+//     time, and a stale nonce is a Payment that reverts and strands its XRP;
+//   - encoding it needs viem, which has no business in a client bundle.
 //
-// ⚠️ Copy and fade are NOT mirror images (see lib/smart-accounts.ts):
-//   copy → an XRPL Payment to the FAssets Core Vault direct-mints FXRP into the
-//          caller's personal account. No instruction is needed for a plain
-//          position increase; the mint *is* the position change.
-//   fade → a redemption: instruction `0x02`, value in whole lots, sent to the
-//          operator wallet as a 32-byte payment reference.
-//
-// ⚠️ The Payment AMOUNT for a copy is computed from the three live fee getters,
-// but the formula is derived from the Dev Hub's prose and has never been checked
-// against a real mint. It is therefore shown as a *breakdown* — net, minting fee,
-// executor fee, total — so the user can check each line against
-// dev.flare.network/fassets/operational-parameters instead of trusting one
-// number. A short direct mint does not bounce: it reverts on the Flare side and
-// strands the XRP at the Core Vault until a 0xE0 recovery runs.
+// ⚠️ Copy and fade are NOT mirror images:
+//   copy → an XRPL Payment to the FAssets Core Vault direct-mints FXRP into the caller's
+//          personal account, and its memo carries a custom instruction that records the
+//          position against this call's id, atomically in the same Flare transaction.
+//   fade → a redemption, instructed by a 32-byte payment reference whose every byte is
+//          already spoken for — so there is nowhere to carry that instruction, and a fade
+//          is NOT bound to its call on-chain. It is still a real, confirmable position
+//          change (the AssetManager emits `RedemptionRequested`), but the link to the call
+//          lives only in Kassette's database. `callBound` carries that distinction through
+//          to the UI, which says it in words rather than letting the two look alike.
 
-import { useMemo, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
+import { accountServerSnapshot, accountSnapshot, subscribeAccount } from "@/lib/account";
 import type { DossierCall } from "@/lib/dossier";
-import type { SmartAccountInfo } from "@/lib/flare";
-import {
-  directMintingPayment,
-  encodeRedeemInstruction,
-  lotsFor,
-  ubaToDrops,
-  xrplMemoData,
-  type Side,
-} from "@/lib/smart-accounts";
 import { ErrorBox, Loading, useApi } from "./ui";
 import { PoweredBy } from "./PoweredBy";
 
 const XRPL_ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/;
+const XRPL_TX_RE = /^[0-9A-Fa-f]{64}$/;
+
+type Side = "copy" | "fade";
+
+interface ExecutionPlan {
+  call: { id: number; direction: string; assetSymbol: string | null };
+  side: Side;
+  effect: "increase" | "decrease";
+  callBound: boolean;
+  chainCallId: string | null;
+  personalAccount: string;
+  nonce: string | null;
+  lots: string;
+  lotSizeFxrp: number;
+  unmintableRemainderFxrp: number;
+  payment: {
+    TransactionType: string;
+    Account: string;
+    Destination: string;
+    Amount: string;
+    Memos: { Memo: { MemoData: string } }[];
+  };
+  breakdown: { netMintUBA: string; mintingFeeUBA: string; executorFeeUBA: string; totalUBA: string };
+  memoBytes: number;
+  executionRegistry: string | null;
+}
 
 function Segmented({ side, onChange }: { side: Side; onChange: (s: Side) => void }) {
   return (
@@ -85,90 +98,55 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 export function FadeTicket({ call, handle }: { call: DossierCall; handle: string }) {
   const [side, setSide] = useState<Side>("copy");
   const [amount, setAmount] = useState("10");
-  const [xrplInput, setXrplInput] = useState("");
-  const [xrplAccount, setXrplAccount] = useState<string | null>(null);
+  // The signed-in account seeds both fields, so a signed-in user never retypes
+  // their address — but it is still only a default: the value stays editable,
+  // and confirming it is what arms the plan.
+  const signedIn = useSyncExternalStore(subscribeAccount, accountSnapshot, accountServerSnapshot);
+  const [xrplInput, setXrplInput] = useState(signedIn ?? "");
+  const [xrplAccount, setXrplAccount] = useState<string | null>(signedIn);
   const [reviewing, setReviewing] = useState(false);
 
-  const info = useApi<SmartAccountInfo>(
-    xrplAccount ? `/api/smart-account?xrpl=${encodeURIComponent(xrplAccount)}` : null,
-    [xrplAccount]
-  );
+  const [txHash, setTxHash] = useState("");
+  const [recording, setRecording] = useState(false);
+  const [recorded, setRecorded] = useState<{ status: string; reason: string | null } | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
 
   const fxrp = Number(amount);
   const validAmount = Number.isFinite(fxrp) && fxrp > 0;
 
-  // What the user is actually taking a position on. A "copy" of a short call is
-  // a decrease in exposure, not an increase — the direction of the call and the
-  // side of the ticket compose, and getting that backwards would execute the
-  // opposite of what the button says.
-  const effect = useMemo(() => {
-    if (!call.direction) return null;
-    const followsLong = call.direction === "long";
-    const increases = side === "copy" ? followsLong : !followsLong;
-    return { increases, label: increases ? "increase FXRP exposure" : "decrease FXRP exposure" };
-  }, [call.direction, side]);
+  const planUrl =
+    xrplAccount && validAmount
+      ? `/api/execution-plan?xrpl=${encodeURIComponent(xrplAccount)}&call=${call.id}&side=${side}&fxrp=${fxrp}`
+      : null;
+  const plan = useApi<ExecutionPlan>(planUrl, [xrplAccount, side, fxrp, call.id]);
 
-  const plan = useMemo(() => {
-    const d = info.data;
-    if (!d || !effect || !validAmount) return null;
+  async function record() {
+    if (!plan.data) return;
+    setRecording(true);
+    setRecordError(null);
     try {
-      if (effect.increases) {
-        // Mint in whole lots: the net amount must be lot-aligned, so the same
-        // rounding the fade path applies is applied here rather than minting an
-        // amount the protocol would reject.
-        const { lots, remainder } = lotsFor(fxrp, d.lotSizeFxrp);
-        if (lots <= 0n) {
-          return {
-            kind: "too-small" as const,
-            destination: d.coreVaultXrplAddress,
-            memo: null as string | null,
-            payment: null,
-            note: `Minting is lot-granular at ${d.lotSizeFxrp} FXRP per lot (read live), so ${fxrp} FXRP is below one lot.`,
-          };
-        }
-        const netUBA = lots * BigInt(d.lotSizeUBA);
-        const payment = directMintingPayment(netUBA, {
-          feeBIPS: BigInt(d.directMintingFeeBIPS),
-          minimumFeeUBA: BigInt(d.directMintingMinimumFeeUBA),
-          executorFeeUBA: BigInt(d.directMintingExecutorFeeUBA),
-        });
-        const whole = Number(lots) * d.lotSizeFxrp;
-        return {
-          kind: "mint" as const,
-          destination: d.coreVaultXrplAddress,
-          memo: null as string | null,
-          payment: { ...payment, drops: ubaToDrops(payment.totalUBA, d.assetMintingDecimals) },
-          note:
-            remainder > 0
-              ? `${lots} lot${lots === 1n ? "" : "s"} (${whole} FXRP) into ${d.personalAccount}. ${remainder} FXRP is below a whole lot and is NOT included.`
-              : `${lots} lot${lots === 1n ? "" : "s"} (${whole} FXRP) into ${d.personalAccount}.`,
-        };
-      }
-      const { lots, remainder } = lotsFor(fxrp, d.lotSizeFxrp);
-      if (lots <= 0n) {
-        return {
-          kind: "too-small" as const,
-          destination: d.operatorXrplAddress,
-          memo: null,
-          payment: null,
-          note: `Redemption is lot-granular at ${d.lotSizeFxrp} FXRP per lot (read live), so ${fxrp} FXRP is below one lot.`,
-        };
-      }
-      const whole = Number(lots) * d.lotSizeFxrp;
-      return {
-        kind: "redeem" as const,
-        destination: d.operatorXrplAddress,
-        memo: xrplMemoData(encodeRedeemInstruction(lots)),
-        payment: null,
-        note:
-          remainder > 0
-            ? `${lots} lot${lots === 1n ? "" : "s"} (${whole} FXRP). ${remainder} FXRP is below a whole lot and is NOT included.`
-            : `${lots} lot${lots === 1n ? "" : "s"} (${whole} FXRP).`,
-      };
+      const res = await fetch("/api/executions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          call: call.id,
+          mode: side,
+          xrplAccount,
+          xrplTxHash: txHash.trim(),
+          fxrpAmount: String(Number(plan.data.breakdown.netMintUBA) / 1e6),
+          // Lets the server tell "not yet" from "this can never execute" — see ERRORS.md §L.
+          nonce: plan.data.nonce,
+        }),
+      });
+      const body = await res.json();
+      if (!body.ok) setRecordError(body.error);
+      else setRecorded({ status: body.data.status, reason: body.data.reason });
     } catch (e) {
-      return { kind: "error" as const, destination: null, memo: null, payment: null, note: e instanceof Error ? e.message : String(e) };
+      setRecordError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRecording(false);
     }
-  }, [info.data, effect, validAmount, fxrp]);
+  }
 
   return (
     <div
@@ -181,15 +159,22 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
       </div>
 
       {call.direction == null ? (
-        // An ambiguous call has no direction, so there is no position to take.
-        // Offering a ticket anyway would invite the user to act on a call the
-        // extraction explicitly refused to score.
+        // An ambiguous call has no direction, so there is no position to take. Offering a
+        // ticket anyway would invite the user to act on a call the extraction explicitly
+        // refused to score.
         <p className="label" style={{ textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}>
           This call has no extracted direction, so there is no position to copy or fade.
         </p>
       ) : (
         <>
-          <Segmented side={side} onChange={setSide} />
+          <Segmented
+            side={side}
+            onChange={(s) => {
+              setSide(s);
+              setReviewing(false);
+              setRecorded(null);
+            }}
+          />
 
           <div className="term-search" style={{ marginTop: 14 }}>
             <span className="label">FXRP</span>
@@ -199,13 +184,14 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
               onChange={(e) => {
                 setAmount(e.target.value);
                 setReviewing(false);
+                setRecorded(null);
               }}
               aria-label="amount in FXRP"
             />
           </div>
 
-          {/* The XRPL account is asked for, never inferred: it decides which
-              personal account the FXRP lands in, and a wrong one is unrecoverable. */}
+          {/* The XRPL account is asked for, never inferred: it decides which personal
+              account the FXRP lands in, and a wrong one is unrecoverable. */}
           <div className="term-search" style={{ marginTop: 10 }}>
             <span className="label">XRPL</span>
             <input
@@ -224,6 +210,7 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
               onClick={() => {
                 setXrplAccount(xrplInput.trim());
                 setReviewing(false);
+                setRecorded(null);
               }}
             >
               load
@@ -237,49 +224,68 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
             </p>
           )}
 
-          {info.loading && <div style={{ marginTop: 10 }}><Loading what="reading Coston2" /></div>}
-          {info.error && <div style={{ marginTop: 10 }}><ErrorBox error={info.error} /></div>}
+          {plan.loading && <div style={{ marginTop: 10 }}><Loading what="building the payment" /></div>}
+          {plan.error && <div style={{ marginTop: 10 }}><ErrorBox error={plan.error} /></div>}
 
-          {info.data && (
-            <div style={{ marginTop: 14 }}>
-              <Row label="caller said">
-                {call.direction} {call.asset_symbol ?? "—"}
-              </Row>
-              <Row label="you are">{effect?.label ?? "—"}</Row>
-              <Row label="via">
-                {plan?.kind === "mint"
-                  ? "FAssets direct mint"
-                  : plan?.kind === "redeem"
-                    ? "FAssets redemption · 0x02"
-                    : "—"}
-              </Row>
-              <Row label="personal account">{info.data.personalAccount}</Row>
-              <Row label="nonce">{info.data.nonce}</Row>
-              <Row label="lot size (live)">{info.data.lotSizeFxrp} FXRP</Row>
-              <Row label="destination">{plan?.destination ?? "—"}</Row>
-              {plan?.memo && <Row label="memo">{plan.memo}</Row>}
-            </div>
-          )}
-
-          {plan?.note && (
-            <p className="label" style={{ marginTop: 10, textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}>
-              {plan.note}
-            </p>
-          )}
-
-          {info.data && (
+          {plan.data && (
             <>
+              <div style={{ marginTop: 14 }}>
+                <Row label="caller said">
+                  {call.direction} {call.asset_symbol ?? "—"}
+                </Row>
+                <Row label="you are">
+                  {plan.data.effect === "increase" ? "increase" : "decrease"} FXRP exposure
+                </Row>
+                <Row label="via">
+                  {plan.data.callBound ? "FAssets direct mint · custom instruction" : "FAssets redemption · 0x02"}
+                </Row>
+                <Row label="personal account">{plan.data.personalAccount}</Row>
+                {plan.data.nonce != null && <Row label="nonce">{plan.data.nonce}</Row>}
+                <Row label="lot size (live)">{plan.data.lotSizeFxrp} FXRP</Row>
+                <Row label="binds to call">
+                  {plan.data.callBound && plan.data.chainCallId ? (
+                    `${plan.data.chainCallId.slice(0, 18)}…`
+                  ) : (
+                    <span style={{ color: "var(--muted)" }}>not on-chain</span>
+                  )}
+                </Row>
+              </div>
+
+              <p className="label" style={{ marginTop: 10, textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}>
+                {plan.data.lots} lot{plan.data.lots === "1" ? "" : "s"} (
+                {Number(plan.data.breakdown.netMintUBA) / 1e6} FXRP){" "}
+                {plan.data.callBound ? `into ${plan.data.personalAccount}` : `out of ${plan.data.personalAccount}`}.
+                {plan.data.unmintableRemainderFxrp > 0
+                  ? ` ${plan.data.unmintableRemainderFxrp} FXRP is below a whole lot and is NOT included.`
+                  : ""}
+              </p>
+
+              {/* ⚠️ The asymmetry is real and must be visible. A copy's link to this call
+                  is written on-chain by the custom instruction; a fade's exists only in
+                  Kassette's database, because a redemption's 32-byte payment reference has
+                  no room to carry one. Presenting them as equally evidenced would be the
+                  same overreach this product exists to call out. */}
+              {!plan.data.callBound && (
+                <p
+                  className="label"
+                  style={{ marginTop: 8, color: "var(--muted)", textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}
+                >
+                  A fade is a redemption, and its instruction has no room to record which call it
+                  was for. The position change is real and confirmable on-chain; the link to this
+                  call is Kassette&apos;s record, not the chain&apos;s. A copy binds both.
+                </p>
+              )}
+
               <button
                 type="button"
                 className="act"
                 style={{ marginTop: 14, width: "100%" }}
-                disabled={!plan || plan.kind === "too-small" || plan.kind === "error"}
                 onClick={() => setReviewing((r) => !r)}
               >
                 {reviewing ? "hide payment" : "review payment"}
               </button>
 
-              {reviewing && plan && (plan.kind === "mint" || plan.kind === "redeem") && (
+              {reviewing && (
                 <div
                   className="mt-3 px-3 py-3"
                   style={{
@@ -297,69 +303,36 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
                   <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", margin: 0, color: "var(--muted)" }}>
                     {JSON.stringify(
                       {
-                        TransactionType: "Payment",
-                        Account: info.data.xrplAccount,
-                        Destination: plan.destination,
-                        Amount: plan.payment ? plan.payment.drops : "<set by your wallet — see below>",
-                        ...(plan.memo ? { Memos: [{ Memo: { MemoData: plan.memo } }] } : {}),
+                        ...plan.data.payment,
+                        Memos: [
+                          {
+                            Memo: {
+                              MemoData: `${plan.data.payment.Memos[0].Memo.MemoData.slice(0, 64)}… (${plan.data.memoBytes} bytes)`,
+                            },
+                          },
+                        ],
                       },
                       null,
                       2
                     )}
                   </pre>
 
-                  {/*
-                    The amount, decomposed. Every line is checkable against the
-                    live getters shown above, because the formula behind the
-                    total has never been confirmed by a real mint.
-                  */}
-                  {plan.payment && (
-                    <div style={{ marginTop: 12 }}>
-                      <div className="label" style={{ marginBottom: 6 }}>{"// amount, in drops (1 drop = 1 UBA at 6 decimals)"}</div>
-                      <Row label="net minted">{plan.payment.netMintUBA.toString()}</Row>
-                      <Row label={`minting fee${plan.payment.minimumApplied ? " (floor)" : ` (${info.data.directMintingFeeBIPS} bips)`}`}>
-                        {plan.payment.mintingFeeUBA.toString()}
-                      </Row>
-                      <Row label="executor fee">{plan.payment.executorFeeUBA.toString()}</Row>
-                      <Row label="total to send">{plan.payment.drops}</Row>
-                    </div>
-                  )}
+                  <div style={{ marginTop: 12 }}>
+                    <div className="label" style={{ marginBottom: 6 }}>{"// amount, in drops (1 drop = 1 UBA at 6 decimals)"}</div>
+                    <Row label="net minted">{plan.data.breakdown.netMintUBA}</Row>
+                    <Row label="minting fee">{plan.data.breakdown.mintingFeeUBA}</Row>
+                    <Row label="executor fee">{plan.data.breakdown.executorFeeUBA}</Row>
+                    <Row label="total to send">{plan.data.breakdown.totalUBA}</Row>
+                  </div>
 
-                  <p
-                    className="label"
-                    style={{
-                      marginTop: 10,
-                      color: "var(--loss)",
-                      textTransform: "none",
-                      letterSpacing: "0.02em",
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    {plan.payment ? (
-                      <>
-                        ⚠ This total is derived from the three fee getters above and the Dev Hub&apos;s
-                        description of how they combine — it has never been confirmed by a real mint.
-                        Check each line against{" "}
-                        <a
-                          href="https://dev.flare.network/fassets/operational-parameters"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="link"
-                          style={{ color: "var(--loss)", textDecoration: "underline" }}
-                        >
-                          operational parameters
-                        </a>{" "}
-                        before signing. Sending too little does not bounce: the mint reverts on Flare
-                        and the XRP sits at the Core Vault until a recovery flow runs.
-                      </>
-                    ) : (
-                      <>
-                        ⚠ A redemption Payment carries the instruction; its Amount is the operator&apos;s
-                        instruction fee, which Kassette does not compute. Take it from your wallet&apos;s
-                        quote.
-                      </>
-                    )}
-                  </p>
+                  {plan.data.nonce != null && (
+                    <p className="label" style={{ marginTop: 10, color: "var(--loss)", textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}>
+                      ⚠ Sign this promptly, and do not reuse it. The memo commits to nonce{" "}
+                      {plan.data.nonce}; once any mint for this account lands, that nonce is spent and
+                      this payment can no longer execute — the XRP would sit at the Core Vault rather
+                      than bounce.
+                    </p>
+                  )}
                   <p className="label" style={{ marginTop: 8, color: "var(--loss)", textTransform: "none", letterSpacing: "0.02em" }}>
                     ⚠ Do not attach a destination tag. A tag credits the tag-holder instead of your
                     smart account.
@@ -368,6 +341,55 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
                     Kassette never holds your key and never submits this. You sign it, once, for this
                     call — there is no standing authority to grant or revoke.
                   </p>
+
+                  {/* Recording is a separate, later step on purpose: until the mint lands
+                      there is nothing to record, and a hash alone proves nothing. */}
+                  <div style={{ borderTop: "1px solid var(--line)", marginTop: 12, paddingTop: 12 }}>
+                    <div className="label" style={{ marginBottom: 8 }}>
+                      once you have sent it, paste the transaction hash
+                    </div>
+                    <div className="term-search">
+                      <span className="label">TX</span>
+                      <input
+                        value={txHash}
+                        onChange={(e) => setTxHash(e.target.value)}
+                        placeholder="XRPL transaction hash (64 hex)"
+                        aria-label="XRPL transaction hash"
+                      />
+                      <button
+                        className="act"
+                        style={{ minWidth: 0, padding: "4px 10px" }}
+                        disabled={!XRPL_TX_RE.test(txHash.trim()) || recording}
+                        onClick={record}
+                      >
+                        {recording ? "checking…" : "record"}
+                      </button>
+                    </div>
+
+                    {recordError && <div style={{ marginTop: 8 }}><ErrorBox error={recordError} /></div>}
+
+                    {recorded && (
+                      <p
+                        className="label"
+                        style={{
+                          marginTop: 8,
+                          textTransform: "none",
+                          letterSpacing: "0.02em",
+                          lineHeight: 1.6,
+                          color: recorded.status === "executed" ? "var(--gain)" : "var(--muted)",
+                        }}
+                      >
+                        {recorded.status === "executed" ? (
+                          <>✓ Confirmed on-chain and recorded against this call. It is in your portfolio.</>
+                        ) : (
+                          <>
+                            Recorded as pending. {recorded.reason} A mint takes roughly two minutes —
+                            press record again to re-check.
+                          </>
+                        )}
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
             </>

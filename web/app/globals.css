@@ -1,53 +1,122 @@
 @import "tailwindcss";
 
-/* Kassette — dither / 1-bit forensic. LIGHT: bone-white paper, near-black ink,
-   halftone dither as the surface voice, red/green only for money. Dark tokens are
-   kept (--dark*) for the high-contrast dithered illustration blocks.
+/* Kassette — a desk, with apps on it.
+   =========================================================================
+   The product is presented as a light desktop: a paper ground, a menu bar, a
+   Dock, and real windows you can move, stack, minimize and zoom. Routes only
+   ask for a window; components/desktop/Desktop.tsx draws them.
 
-   Ported from the reference frontend. Note that its own design notes describe a
-   *dark* theme with an amber accent — the implementation diverged to light with a
-   lime accent, and the implementation is what this file follows. */
+   PALETTE — monochrome, plus one highlight.
+   Every surface, border and label is a step on the black→white ramp below.
+   Exactly two exceptions, both earned:
+     · --accent, the single highlight, for what is selected, focused, live or
+       primary. Nothing decorative ever gets it.
+     · --gain / --loss, because red/green is the convention a trading screen is
+       read through and breaking it costs more than it buys. They are never the
+       only cue — every use is paired with a sign or a word.
+   A state that needs distinguishing is distinguished by weight, fill, rule or
+   position before a colour is considered.
+
+   TRANSLUCENCY — chrome only. Menu bar, Dock, titlebars, menus. Ledgers, stat
+   strips and charts sit on opaque white: this product's whole claim is that its
+   numbers are legible, and translucency under dense numerics is the standard
+   way to destroy contrast.
+   ========================================================================= */
+
 :root {
-  /* Dark ground. Glass is only legible over something busy and darker than it,
-     so the dither field became the wallpaper and the palette inverted around it.
-     Red/green stay the only semantic colour and are brightened for a dark base —
-     the desaturated pair that worked on paper goes muddy here. */
-  --bg: oklch(0.155 0.008 265);
-  --bg-2: oklch(0.185 0.009 265);
-  --surface: oklch(0.215 0.010 265);
-  --surface-2: oklch(0.255 0.010 265);
-  --line: oklch(0.315 0.010 265);
-  --line-strong: oklch(0.435 0.012 265);
-  --ink: oklch(0.960 0.003 250);
-  --muted: oklch(0.720 0.007 265);
-  --faint: oklch(0.550 0.008 265);
-  --loss: oklch(0.680 0.185 25);
-  --gain: oklch(0.760 0.150 155);
-  --signal: oklch(0.860 0.185 130); /* lime phosphor accent, used sparingly */
-  /* A deeper well than --bg, for the inset dithered illustration bands. On the
-     old paper ground these were dark islands; here they are recesses. */
-  --dark: oklch(0.105 0.008 265);
-  --dark-ink: oklch(0.960 0.003 250);
+  /* ---- the ramp (named by lightness, not by role) ---- */
+  --g-0: #ffffff;
+  --g-2: #fbfaf9;
+  --g-5: #f4f3f1;
+  --g-8: #eeedea;
+  --g-12: #e4e2de;
+  --g-18: #d7d5d0;
+  --g-28: #bebbb5;
+  --g-45: #97948d;
+  --g-60: #6f6d67;
+  --g-78: #45443f;
+  --g-92: #1e1e1b;
+  --g-100: #0b0b0a;
 
-  /* ---- glass material ----
-     Tier 1: blur + saturate + specular edges. No refraction/displacement — that
-     needs SVG filters or WebGL, is unreliable outside Chrome/Safari, and would
-     cost a GPU layer per card on a feed that renders up to 50 of them.
+  /* ---- the one highlight ---- */
+  --accent: #5231f0;
+  --accent-ink: #ffffff;
 
-     ⚠️ Glass is for CHROME ONLY. Ledgers, stat strips and charts stay on solid
-     --surface: this product's whole claim is that its numbers are legible, and
-     translucency under dense numerics is the standard way to destroy contrast. */
-  --glass-blur: 18px;
-  --glass-blur-soft: 10px;
-  --glass-sat: 1.7;
-  --glass-tint: color-mix(in oklch, var(--surface) 52%, transparent);
-  --glass-tint-soft: color-mix(in oklch, var(--surface) 68%, transparent);
-  --glass-edge: color-mix(in oklch, var(--ink) 22%, transparent);
-  --glass-specular: color-mix(in oklch, var(--ink) 30%, transparent);
-  --glass-shade: color-mix(in oklch, black 45%, transparent);
+  /* ---- money (the only other hue, always paired with a sign) ---- */
+  --gain: #1a9e6d;
+  --loss: #d23c37;
+  --warn: #a9761a;
 
-  --radius: 12px;
-  --radius-sm: 7px;
+  /* ---- roles ---- */
+  --bg: var(--g-5);        /* wells inside a window */
+  --bg-2: var(--g-8);
+  --surface: var(--g-0);   /* window paper */
+  --surface-2: var(--g-2); /* raised group inside a window */
+  --line: var(--g-12);
+  --line-strong: var(--g-28);
+  --ink: var(--g-100);
+  --muted: var(--g-60);
+  --faint: var(--g-45);
+  --signal: var(--accent); /* legacy alias: dozens of inline styles use it */
+
+  /* Ink blocks: the dithered illustration bands invert to black-on-paper, the
+     one place the page goes fully dark. */
+  --dark: #0b0b0a;
+  --dark-ink: #ffffff;
+
+  /* ---- desk ----
+     The two ends of the ground the drifting masses sit on. Everything above
+     them is a tint of the one highlight or a neutral — see Wall.tsx. */
+  --desk-1: #f7f6fc;
+  --desk-2: #e6e3f5;
+
+  /* ---- traffic lights ---- */
+  --tl-red: #ff5f57;
+  --tl-yellow: #febc2e;
+  --tl-green: #28c840;
+
+  /* ---- materials ---- */
+  --mat-sat: 180%;
+  --mat-blur-thick: 40px;
+  --mat-blur: 24px;
+  --mat-blur-thin: 14px;
+  --mat-thick: color-mix(in srgb, var(--g-0) 88%, transparent);
+  --mat-regular: color-mix(in srgb, var(--g-0) 72%, transparent);
+  --mat-thin: color-mix(in srgb, var(--g-0) 55%, transparent);
+
+  /* Legacy aliases kept so the app's inline styles stay coherent. */
+  --glass-blur: var(--mat-blur);
+  --glass-blur-soft: var(--mat-blur-thin);
+  --glass-sat: 1.8;
+  --glass-tint: var(--mat-regular);
+  --glass-tint-soft: var(--mat-thick);
+  --glass-edge: var(--g-18);
+  --glass-specular: #ffffff;
+  --glass-shade: color-mix(in srgb, var(--g-100) 8%, transparent);
+
+  /* ---- geometry ---- */
+  --radius: 8px;
+  --radius-sm: 5px;
+  --radius-lg: 14px;
+  --radius-win: 11px;
+  --menubar-h: 30px;
+  --dock-h: 96px;
+
+  /* ---- elevation (light ground: hairline first, shadow second) ---- */
+  --shadow-win:
+    0 0 0 0.5px color-mix(in srgb, var(--g-100) 14%, transparent),
+    0 28px 64px -20px color-mix(in srgb, var(--g-100) 34%, transparent),
+    0 6px 18px -10px color-mix(in srgb, var(--g-100) 22%, transparent);
+  --shadow-pop:
+    0 0 0 0.5px color-mix(in srgb, var(--g-100) 12%, transparent),
+    0 16px 36px -14px color-mix(in srgb, var(--g-100) 30%, transparent);
+  --shadow-card: 0 1px 2px color-mix(in srgb, var(--g-100) 6%, transparent);
+
+  /* ---- motion: one curve, critically damped. Overshoot is reserved for
+     motion a gesture actually threw. ---- */
+  --ease-ui: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 @theme inline {
@@ -59,8 +128,8 @@
   --color-faint: var(--faint);
   --color-loss: var(--loss);
   --color-gain: var(--gain);
-  --color-signal: var(--signal);
-  --font-display: var(--font-display);
+  --color-signal: var(--accent);
+  --font-display: var(--font-ui);
   --font-mono: var(--font-mono);
   --font-pixel: var(--font-pixel);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -69,613 +138,1484 @@
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-/* ambient dither field fixed behind all content (subtle living paper grain) */
-/* ⚠️ Kept low on purpose. The terminal's left rail renders labels straight onto
-   this field with no surface behind them, and at 0.26 the dither ate them. */
-.app-dither { position: fixed; inset: 0; z-index: -1; opacity: 0.16; pointer-events: none; }
-@media (prefers-reduced-motion: reduce) { .app-dither { opacity: 0.16; } }
+/* ⚠️ The desk is a screen, not a page: it is exactly the viewport and it never
+   scrolls. Everything with more content than fits is an app, and an app scrolls
+   inside its own window. Below the compact breakpoint there are no windows to
+   scroll inside, so the page takes the scrolling back. */
+html, body { height: 100%; overflow: hidden; }
+@media (max-width: 899px) {
+  html, body { height: auto; overflow: visible; }
+}
+
 body {
-  background: var(--bg);
+  min-height: 100%;
   color: var(--ink);
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 14px;
-  line-height: 1.6;
+  /* The platform font first: it already ships optical sizing, tracking tables
+     and legibility tuning. Inter is the stand-in everywhere else. */
+  font-family: -apple-system, BlinkMacSystemFont, var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
-  background-image: radial-gradient(oklch(1 0 0 / 0.035) 0.5px, transparent 0.6px);
-  background-size: 3px 3px;
+  padding-top: var(--menubar-h);
+  padding-bottom: var(--dock-h);
+  background: transparent;
 }
 
+/* ---- the desk ----------------------------------------------------------
+   Five soft masses drifting behind everything, merged by an SVG goo filter.
+   See components/desktop/Wall.tsx for why this variant multiplies rather than
+   hard-lights, and why it has to stay pale. */
+.wall {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  background: linear-gradient(38deg, var(--desk-1), var(--desk-2));
+}
+.wall-defs { position: fixed; top: 0; left: 0; width: 0; height: 0; }
+
+.wall-masses {
+  position: absolute;
+  inset: 0;
+  /* The goo filter needs a blur to merge against; the second blur softens the
+     merged silhouette back down so it reads as light rather than as lava. */
+  filter: url(#wall-goo) blur(30px) saturate(1.25);
+  opacity: 1;
+}
+.wall-masses > * {
+  position: absolute;
+  width: var(--mass);
+  height: var(--mass);
+  top: calc(50% - var(--mass) / 2);
+  left: calc(50% - var(--mass) / 2);
+  /* ⚠️ multiply, not hard-light. On a near-white ground hard-light drives every
+     overlap to pure white and the surface goes flat. */
+  mix-blend-mode: multiply;
+  border-radius: 50%;
+}
+:root { --mass: 62%; }
+
+.wall-m1 {
+  background: radial-gradient(circle at center, rgba(82, 49, 240, 0.62) 0, rgba(82, 49, 240, 0) 58%) no-repeat;
+  animation: massVertical 34s ease-in-out infinite;
+}
+.wall-m2 {
+  background: radial-gradient(circle at center, rgba(84, 150, 255, 0.58) 0, rgba(84, 150, 255, 0) 58%) no-repeat;
+  transform-origin: calc(50% - 380px);
+  animation: massCircle 26s linear infinite reverse;
+}
+.wall-m3 {
+  background: radial-gradient(circle at center, rgba(176, 96, 250, 0.54) 0, rgba(176, 96, 250, 0) 58%) no-repeat;
+  top: calc(50% - var(--mass) / 2 + 180px);
+  left: calc(50% - var(--mass) / 2 - 420px);
+  transform-origin: calc(50% + 380px);
+  animation: massCircle 44s linear infinite;
+}
+.wall-m4 {
+  background: radial-gradient(circle at center, rgba(96, 214, 230, 0.44) 0, rgba(96, 214, 230, 0) 58%) no-repeat;
+  transform-origin: calc(50% - 200px);
+  animation: massHorizontal 40s ease-in-out infinite;
+  opacity: 0.8;
+}
+/* A light mass, to keep one region of the desk bright — without it the merged
+   field closes over and the whole ground creeps grey. */
+.wall-m5 {
+  --mass: 108%;
+  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.75) 0, rgba(255, 255, 255, 0) 56%) no-repeat;
+  mix-blend-mode: normal;
+  transform-origin: calc(50% - 760px) calc(50% + 180px);
+  animation: massCircle 22s ease-in-out infinite;
+}
+.wall-pointer {
+  --mass: 74%;
+  top: 0;
+  left: 0;
+  margin: calc(var(--mass) / -2) 0 0 calc(var(--mass) / -2);
+  background: radial-gradient(circle at center, rgba(82, 49, 240, 0.40) 0, rgba(82, 49, 240, 0) 54%) no-repeat;
+  opacity: 0.8;
+}
+
+@keyframes massVertical {
+  0%, 100% { transform: translateY(-48%); }
+  50% { transform: translateY(48%); }
+}
+@keyframes massHorizontal {
+  0%, 100% { transform: translateX(-48%) translateY(-10%); }
+  50% { transform: translateX(48%) translateY(10%); }
+}
+@keyframes massCircle {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Paper tooth over the whole thing, so the ground has texture at 100% zoom
+   rather than reading as a smooth gradient. */
+.wall::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  mix-blend-mode: multiply;
+  opacity: 0.45;
+  background-image:
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--g-100) 4%, transparent) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--g-100) 3%, transparent) 0 1px, transparent 1px 4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wall-masses > * { animation: none; }
+}
+
+/* ---- typography --------------------------------------------------------
+   Tracking is size-specific: display sizes tighten, small uppercase opens up.
+   One fixed value would be wrong somewhere. */
 h1, h2, h3, h4 {
-  font-family: var(--font-display), sans-serif;
-  font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; text-wrap: balance;
+  font-family: inherit;
+  font-weight: 650;
+  letter-spacing: -0.022em;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+h1 { letter-spacing: -0.032em; }
+h3, h4 { letter-spacing: -0.014em; }
+
+::selection { background: color-mix(in srgb, var(--accent) 26%, transparent); color: var(--ink); }
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 38%, transparent);
+  border-radius: var(--radius-sm);
 }
 
-::selection { background: var(--signal); color: var(--dark); }
-:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-
-/* ---- terminal grammar ---- */
 .label {
-  font-family: var(--font-mono), monospace;
-  font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   color: var(--faint);
 }
-.tnum { font-variant-numeric: tabular-nums; }
+.tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
 .pixel { font-family: var(--font-pixel), var(--font-mono), monospace; }
-/* Highlight for the load-bearing word in a heading. The reference used it on a
-   pun in its own name; Kassette has no such pun, so it marks the claim instead. */
+/* The load-bearing word in a heading, marked the way a reader marks a page. */
 .mark {
-  background: var(--signal);
-  color: var(--dark);
-  padding: 0 0.14em;
-  margin-right: 0.02em;
-  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: inset 0 -0.34em 0 color-mix(in srgb, var(--accent) 34%, transparent);
+  color: var(--ink);
+  padding: 0 0.12em;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
 .gain { color: var(--gain); }
 .loss { color: var(--loss); }
 
-/* ---- dither texture utilities ---- */
-.dither {
-  background-image: radial-gradient(oklch(1 0 0 / 0.45) 0.5px, transparent 0.6px);
-  background-size: 4px 4px;
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--g-100) 22%, transparent);
+  border: 3.5px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
 }
-/* primitive wordmarks rendered as halftone-dithered silhouettes; resolve to solid
-   ink on hover */
-@keyframes sponsorDrift {
-  0%   { background-position: 0 0, 0 0; }
-  100% { background-position: 5.2px 5.2px, -5px 5px; }
-}
-/* hero copy crossfade when a primitive is hovered — re-keyed so it replays on
-   every switch, so the change is legible rather than an instant jump */
-@keyframes heroSwap {
-  from { opacity: 0; transform: translateY(9px); filter: blur(3px); }
-  to   { opacity: 1; transform: translateY(0);   filter: blur(0); }
-}
-.hero-swap { animation: heroSwap 0.42s var(--ease-out-quart) both; display: inline-block; }
-@media (prefers-reduced-motion: reduce) { .hero-swap { animation: none; } }
-/* blinking caret trailing the typed hero heading */
-@keyframes twBlink { 0%, 48% { opacity: 1; } 49%, 100% { opacity: 0; } }
-.tw-caret {
-  display: inline-block;
-  width: 0.07em; min-width: 3px; height: 0.74em;
-  margin-left: 0.06em; vertical-align: -0.04em;
-  background: currentColor;
-  animation: twBlink 0.9s steps(1) infinite;
-}
-@media (prefers-reduced-motion: reduce) { .tw-caret { animation: none; } }
-.sponsor {
-  display: inline-block;
-  background-color: transparent;
-  /* two dot layers at slightly different pitches drift in opposite directions,
-     so the mark reads as living dither grain rather than a static halftone */
-  background-image:
-    radial-gradient(var(--ink) 0.72px, transparent 0.82px),
-    radial-gradient(var(--ink) 0.5px, transparent 0.6px);
-  background-size: 2.6px 2.6px, 5px 5px;
-  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
-  -webkit-mask-position: center; mask-position: center;
-  -webkit-mask-size: contain; mask-size: contain;
-  opacity: 0.9;
-  animation: sponsorDrift 3.6s linear infinite;
-  transition: background-color 0.2s var(--ease-out-quart), opacity 0.2s;
-}
-.sponsor:hover {
-  background-image: none;
-  background-color: var(--ink);
-  opacity: 1;
-  animation: none;
-}
-@media (prefers-reduced-motion: reduce) { .sponsor { animation: none; } }
-.scan { position: relative; }
-.scan::after {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: repeating-linear-gradient(0deg, transparent 0 2px, oklch(1 0 0 / 0.045) 2px 3px);
-  opacity: 0.8;
-}
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--g-100) 38%, transparent); background-clip: content-box; }
 
+/* =========================================================================
+   LIQUID GLASS
+   The chrome material, in four layers — the same construction the macOS effect
+   uses, expressed as two pseudo-elements so it needs no wrapper markup:
 
-/* ---- glass material -------------------------------------------------------
-   Three layers make it read as glass rather than as a translucent box:
-     1. a tint over a blurred, saturated backdrop;
-     2. a specular top edge and a shaded bottom edge (light from above);
-     3. a soft drop shadow so it floats off the wallpaper.
-   The inset edges are what sell it — a plain blur with a flat 1px border reads
-   as frosted plastic. */
-.glass {
+     ::before  the effect — the backdrop, blurred, then displaced through an SVG
+               turbulence map so the panel's edge BENDS what is behind it, plus
+               a white tint over the result;
+     ::after   the shine — a bright inner top-left edge and a soft bottom-right
+               one, which is the light the glass catches;
+     the box   the shadow that lifts it off the desk.
+
+   ⚠️ The effect layer is the only place `filter` appears. Putting it on the
+   element itself would displace the text as well, and refracted text is
+   unreadable at any size.
+   ========================================================================= */
+.lg {
   position: relative;
-  background: var(--glass-tint);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-  border: 1px solid var(--glass-edge);
-  border-radius: var(--radius);
-  box-shadow:
-    inset 0 1px 0 var(--glass-specular),
-    inset 0 -1px 0 var(--glass-shade),
-    0 10px 34px color-mix(in oklch, black 38%, transparent);
+  isolation: isolate;
+  overflow: hidden;
+  background: transparent;
 }
-/* Cheaper variant for surfaces that repeat — the terminal can render 50 cards,
-   and a full-strength blur layer per card is a real GPU cost. */
-.glass-soft {
-  background: var(--glass-tint-soft);
-  -webkit-backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.35);
-  backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.35);
-  border: 1px solid var(--glass-edge);
-  border-radius: var(--radius);
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklch, var(--ink) 18%, transparent),
-    0 6px 20px color-mix(in oklch, black 30%, transparent);
-}
-/* Highlight sweep along the top edge, brightest at the left where the light is. */
-.glass::after,
-.glass-soft::after {
+.lg > * { position: relative; z-index: 1; }
+.lg::before {
   content: "";
   position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
+  inset: 0;
+  z-index: 0;
   border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    color-mix(in oklch, var(--ink) 42%, transparent),
-    transparent 62%
-  );
-  pointer-events: none;
+  background: color-mix(in srgb, var(--g-0) 58%, transparent);
+  -webkit-backdrop-filter: blur(var(--mat-blur)) saturate(var(--mat-sat));
+  backdrop-filter: blur(var(--mat-blur)) saturate(var(--mat-sat));
 }
+/* A window is glass too, but the thickest tier of it. ⚠️ 90% was not enough:
+   with a second window behind it, the back window's paragraphs were legible
+   THROUGH the front one, which is exactly the failure translucency is famous
+   for. At 96% the desk still shows and the edge still refracts, and no window
+   ever competes with the one in front of it. */
+.win.lg::before { background: color-mix(in srgb, var(--g-0) 96%, transparent); }
+/* The Dock is the thinnest material on screen: it sits over the wash with
+   nothing to protect, so it takes the most refraction and the least tint. */
+.dock.lg::before { background: color-mix(in srgb, var(--g-0) 44%, transparent); }
+.dock.lg::after {
+  box-shadow:
+    inset 2px 2px 1px -1px color-mix(in srgb, var(--g-0) 96%, transparent),
+    inset -1.5px -1.5px 1px 0 color-mix(in srgb, var(--g-0) 70%, transparent),
+    inset 0 0 0 0.5px color-mix(in srgb, var(--g-100) 9%, transparent);
+}
+.win.lg::after { box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--g-100) 12%, transparent); }
+@supports (filter: url(#glass-distortion)) {
+  .lg::before { filter: url(#glass-distortion); }
+}
+.lg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 1.5px 1.5px 1px -1px color-mix(in srgb, var(--g-0) 92%, transparent),
+    inset -1px -1px 1px 0 color-mix(in srgb, var(--g-0) 60%, transparent),
+    inset 0 0 0 0.5px color-mix(in srgb, var(--g-100) 10%, transparent);
+}
+/* Refraction needs something behind it to refract. Reduced transparency turns
+   the whole construction off rather than degrading it. */
 @media (prefers-reduced-transparency: reduce) {
-  /* Opt out entirely rather than degrade: an opaque surface is always legible. */
-  .glass, .glass-soft {
-    background: var(--surface);
+  .lg::before {
+    filter: none;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+    background: var(--surface);
   }
 }
 
-/* ---- surfaces ---- */
-/* ⚠️ Solid on purpose. `.panel` wraps the equity curve, the ledger table and the
-   stat grids — the dense-numeric surfaces glass must stay off. */
-.panel {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: 0 6px 22px color-mix(in oklch, black 26%, transparent);
+/* =========================================================================
+   MENU BAR
+   ========================================================================= */
+.menubar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 900;
+  height: var(--menubar-h);
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 9px;
+  font-size: 13px;
+  box-shadow: inset 0 -0.5px 0 color-mix(in srgb, var(--g-100) 12%, transparent);
+}
+/* ⚠️ The bar itself must not clip: its dropdowns are absolutely positioned
+   children and `overflow: hidden` would cut every menu off at 30px. So the
+   glass is a layer inside it rather than the bar's own background. */
+.menubar > * { position: relative; z-index: 1; }
+.menubar-mat { position: absolute; inset: 0; z-index: 0 !important; border-radius: 0; }
+.mb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 21px;
+  padding: 0 9px;
+  border: 0;
+  background: none;
+  border-radius: 5px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: -0.006em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s linear;
+}
+.mb-item:hover { background: color-mix(in srgb, var(--g-100) 8%, transparent); }
+.mb-item[aria-expanded="true"] { background: var(--accent); color: var(--accent-ink); }
+.mb-app { font-weight: 600; }
+.mb-doc { margin-left: 8px; color: var(--muted); font-size: 12.5px; }
+.app-mark {
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  background: var(--ink);
+  color: var(--g-0);
+  font-family: var(--font-pixel), monospace;
+  line-height: 1;
+}
+.app-mark-lg { width: 72px; height: 72px; border-radius: 16px; font-size: 40px; margin: 0 auto; }
+.mb-right { margin-left: auto; display: flex; align-items: center; gap: 4px; font-size: 12.5px; }
+/* The wordmark, at the far end of the bar. Height-locked and monochrome: it is
+   a mark, not a picture, and it sits on the same 30px strip as the clock. */
+/* The wordmark holds the centre of the bar. Absolutely positioned so the menus
+   on the left and the status items on the right can grow without shifting it. */
+.mb-brand {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
+  height: 22px;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.mb-brand img { height: 13px; width: auto; opacity: 0.8; display: block; }
+.mb-brand:hover { background: color-mix(in srgb, var(--g-100) 8%, transparent); }
+.mb-brand:hover img { opacity: 1; }
+.mb-signin {
+  height: 21px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: filter 0.12s linear;
+}
+.mb-signin:hover { filter: brightness(1.1); }
+/* Signed in, it stops being a call to action and becomes a label you can click. */
+.mb-signin-on {
+  background: color-mix(in srgb, var(--g-100) 8%, transparent);
+  color: var(--ink);
+  font-family: var(--font-mono), monospace;
+  font-size: 11.5px;
+}
+.mb-signin-on:hover { background: color-mix(in srgb, var(--g-100) 14%, transparent); filter: none; }
+.mb-clock { padding: 0 6px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.mb-net {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 21px; padding: 0 9px; border-radius: 5px; font-size: 12px;
+}
+.mb-net:hover { background: color-mix(in srgb, var(--g-100) 8%, transparent); }
+.mb-net-dot {
+  width: 6px; height: 6px; border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.mb-menu {
+  position: absolute;
+  top: calc(var(--menubar-h) - 3px);
+  min-width: 240px;
+  padding: 5px;
+  border-radius: 9px;
+  box-shadow: var(--shadow-pop);
+  z-index: 910;
+  animation: matIn 0.16s var(--ease-ui) both;
+  transform-origin: top left;
+}
+.mb-menu-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  width: 100%; padding: 5px 9px;
+  border: 0; background: none; border-radius: 5px;
+  color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.mb-menu-item:hover:not(:disabled), .mb-menu-item:focus-visible {
+  background: var(--accent); color: var(--accent-ink); box-shadow: none;
+}
+.mb-menu-item:disabled { color: var(--faint); cursor: default; }
+.mb-menu-item:hover:not(:disabled) .mb-key { color: color-mix(in srgb, var(--accent-ink) 80%, transparent); }
+.mb-tick { display: inline-block; width: 16px; color: inherit; }
+.mb-key { color: var(--faint); font-size: 12px; }
+.mb-sep { height: 0.5px; margin: 5px 8px; background: var(--g-18); border: 0; }
+.mb-scrim { position: fixed; inset: 0; z-index: 905; }
+
+@keyframes matIn {
+  from { opacity: 0; transform: scale(0.97) translateY(-4px); }
+  to { opacity: 1; transform: none; }
 }
 
-/* ---- links / interactive ---- */
-a { color: inherit; text-decoration: none; }
-.link { color: var(--muted); transition: color 0.2s var(--ease-out-quart); }
-.link:hover { color: var(--ink); }
-
-.hero-ext { transition: color 0.2s var(--ease-out-quart), border-color 0.2s var(--ease-out-quart); }
-.hero-ext:hover { color: var(--ink); border-color: var(--ink); }
-
-/* ---- motion ---- */
-@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
-@keyframes flick { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-.rise { animation: rise 0.7s var(--ease-out-expo) both; }
-.flick { animation: flick 1.4s steps(2) infinite; }
-
-/* ---- social feed (landing) ---- */
-.post {
-  position: relative;
-  background: var(--glass-tint-soft);
-  -webkit-backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.35);
-  backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.35);
-  border: 1px solid var(--glass-edge);
-  border-radius: var(--radius);
-  padding: 20px 22px;
+/* =========================================================================
+   WINDOWS
+   ========================================================================= */
+.win {
+  position: fixed;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  transition: border-color 0.25s var(--ease-out-quart), transform 0.25s var(--ease-out-quart);
+  border-radius: var(--radius-win);
+  /* Glass, but a thick one: the tint is high enough that a ledger stays as
+     legible as it would be on paper, and the refraction shows at the window's
+     gutters and edges rather than under its numbers. */
+  background: transparent;
+  box-shadow:
+    0 0 0 0.5px color-mix(in srgb, var(--g-100) 14%, transparent),
+    0 10px 26px -14px color-mix(in srgb, var(--g-100) 26%, transparent);
+  overflow: hidden;
+  /* ⚠️ `backwards`, NEVER `both`. A CSS animation that is still "in effect"
+     wins over inline styles in the cascade, and `winIn` animates `transform` —
+     so with `both` the finished animation pinned every window at
+     `transform: none` forever, and the drag handler's `el.style.transform`
+     silently did nothing. The window only appeared to move on release, when the
+     committed left/top took over. `backwards` gives the same entrance and stops
+     applying the moment it ends. */
+  animation: winIn 0.26s var(--ease-ui) backwards;
+  /* Programmatic moves — tiling, snapping, zooming — are shown rather than
+     teleported. Hand-dragging sets `data-dragging` and turns this off, because
+     the gesture is already 1:1 with the pointer and a transition would fight
+     it. */
+  transition:
+    left 0.28s var(--ease-ui),
+    top 0.28s var(--ease-ui),
+    width 0.28s var(--ease-ui),
+    height 0.28s var(--ease-ui),
+    box-shadow 0.2s linear;
 }
-.post:hover { border-color: var(--line-strong); transform: translateY(-2px); }
-.avatar {
-  flex-shrink: 0;
-  width: 42px; height: 42px;
+.win[data-dragging] {
+  transition: box-shadow 0.2s linear;
+  /* Lifted while it is in your hand. */
+  box-shadow:
+    0 0 0 0.5px color-mix(in srgb, var(--g-100) 16%, transparent),
+    0 40px 80px -24px color-mix(in srgb, var(--g-100) 42%, transparent);
+}
+/* Only the front window carries the full shadow — that is how a stack of
+   windows reads as a stack rather than as a pile of equal rectangles. */
+.win-front { box-shadow: var(--shadow-win); }
+.win-hidden { display: none; }
+@keyframes winIn {
+  from { opacity: 0; transform: scale(0.985) translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.win-bar {
+  flex: 0 0 auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--g-5) 82%, transparent);
+  -webkit-backdrop-filter: blur(var(--mat-blur)) saturate(var(--mat-sat));
+  backdrop-filter: blur(var(--mat-blur)) saturate(var(--mat-sat));
+  box-shadow: inset 0 -0.5px 0 var(--line);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.win-bar:active { cursor: grabbing; }
+/* Two hairlines at the right of the title bar: the least it can say and still
+   say "this is a handle". */
+.win-grab {
+  margin-left: auto;
+  width: 22px;
+  height: 8px;
+  border-top: 1px solid var(--g-18);
+  border-bottom: 1px solid var(--g-18);
+  opacity: 0.9;
+}
+.win-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.008em;
+  color: var(--muted);
+  pointer-events: none;
+}
+.win-front .win-title { color: var(--ink); }
+
+/* ⚠️ A window is the layout context for the app inside it, not the viewport.
+   Tiling made this obvious: a Terminal tiled into half the screen still saw a
+   1440px viewport, kept its three columns and squeezed the feed into a column
+   one character wide. Every breakpoint inside an app is a container query
+   against this box. */
+.win-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+  container-type: inline-size;
+  container-name: win;
+}
+
+/* Traffic lights. Familiarity: close is always top-left, and each one does what
+   its colour means. Grey when the window is not frontmost, exactly like macOS. */
+.traffic { display: flex; align-items: center; gap: 8px; }
+.tl {
+  width: 12px; height: 12px;
+  padding: 0;
+  border: 0.5px solid color-mix(in srgb, var(--g-100) 14%, transparent);
+  border-radius: 999px;
+  background: var(--g-18);
   display: grid; place-items: center;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  background:
-    radial-gradient(oklch(1 0 0 / 0.20) 0.5px, transparent 0.6px) 0 0 / 3px 3px,
-    var(--bg);
-  color: var(--ink); font-size: 15px; letter-spacing: 0.04em;
+  font-size: 8px; font-weight: 700; line-height: 1;
+  color: color-mix(in srgb, var(--g-100) 55%, transparent);
   cursor: pointer;
-  transition: border-color 0.2s var(--ease-out-quart);
+  transition: background 0.14s linear, transform 0.1s var(--ease-ui);
 }
-.avatar:hover { border-color: var(--signal); }
-.handle-link { background: none; border: 0; padding: 0; cursor: pointer; color: var(--ink); text-align: left; }
-.handle-link:hover span:first-child { color: var(--signal); }
-.post-body {
-  display: block; width: 100%; text-align: left; cursor: pointer;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 16px 18px;
-  transition: border-color 0.2s var(--ease-out-quart);
+.tl span { opacity: 0; transition: opacity 0.12s linear; }
+.win-front .traffic:hover .tl span { opacity: 1; }
+.tl:active { transform: scale(0.9); }
+.tl:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); }
+.win-front .tl-red { background: var(--tl-red); }
+.win-front .tl-yellow { background: var(--tl-yellow); }
+.win-front .tl-green { background: var(--tl-green); }
+
+/* =========================================================================
+   SHEETS
+   An app's detail drawer belongs to that app, so it behaves like a macOS sheet:
+   above every window, but starting BELOW the menu bar and stopping above the
+   Dock. ⚠️ It used to run `fixed inset-0` at Tailwind's `z-50`, which put its
+   close button underneath the menu bar's own status items — the chrome then
+   swallowed the click and the drawer could not be closed at all.
+   ========================================================================= */
+.sheet-scrim {
+  position: fixed;
+  inset: var(--menubar-h) 0 0 0;
+  z-index: 500;
+  background: color-mix(in srgb, var(--g-100) 22%, transparent);
+  animation: fadeIn 0.16s linear both;
 }
-.post-body:hover { border-color: var(--line-strong); }
+.sheet {
+  position: fixed;
+  top: var(--menubar-h);
+  right: 0;
+  bottom: 0;
+  z-index: 501;
+  width: min(480px, 100vw);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+  box-shadow: -1px 0 0 var(--line), var(--shadow-win);
+  animation: sheetIn 0.24s var(--ease-ui) both;
+}
+@keyframes sheetIn {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: none; }
+}
+@media (max-width: 899px) {
+  .sheet { width: 100vw; }
+}
+
+/* Where a dragged window will land. Drawn OVER the windows — under a window it
+   is invisible exactly when it matters, because the window you are dragging is
+   sitting on top of it. */
+.snap-preview {
+  position: fixed;
+  z-index: 890;
+  border-radius: var(--radius-win);
+  border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-0) 60%, transparent);
+  pointer-events: none;
+  animation: materialize 0.16s var(--ease-ui) both;
+}
+
+/* Resize grip: the bottom-right corner, plus a few px of the two edges. */
+.win-grip {
+  position: absolute;
+  right: 0; bottom: 0;
+  width: 18px; height: 18px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background:
+    linear-gradient(135deg, transparent 52%, var(--g-28) 52% 58%, transparent 58%),
+    linear-gradient(135deg, transparent 68%, var(--g-28) 68% 74%, transparent 74%);
+}
+
+/* =========================================================================
+   DOCK — the app's name, set in the interface's own type
+   ========================================================================= */
+.dock {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  max-width: calc(100vw - 24px);
+  border-radius: 16px;
+  box-shadow:
+    0 2px 6px -2px color-mix(in srgb, var(--g-100) 18%, transparent),
+    0 20px 44px -16px color-mix(in srgb, var(--g-100) 40%, transparent);
+}
+.dock-app {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.008em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.14s linear, color 0.14s linear;
+}
+.dock-app:hover { background: color-mix(in srgb, var(--g-100) 8%, transparent); color: var(--ink); }
+.dock-app:active { background: color-mix(in srgb, var(--g-100) 13%, transparent); }
+.dock-app-front { color: var(--ink); background: color-mix(in srgb, var(--g-100) 6%, transparent); }
+.dock-doc { font-family: var(--font-mono), monospace; font-size: 12px; }
+
+/* Running-app indicator: the single highlight, and the only colour in the Dock. */
+.dock-run {
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  width: 4px; height: 4px;
+  margin-left: -2px;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.16s linear;
+}
+.dock-app[data-open="true"] .dock-run { opacity: 1; }
+.dock-sep { width: 0.5px; height: 20px; margin: 0 5px; background: var(--g-18); flex: 0 0 auto; }
+
+@media (max-width: 700px) {
+  .dock { gap: 0; padding: 5px; max-width: calc(100vw - 12px); overflow-x: auto; scrollbar-width: none; }
+  .dock::-webkit-scrollbar { display: none; }
+  .dock-app { font-size: 12.5px; padding: 0 10px; height: 32px; }
+}
+
+/* =========================================================================
+   ABOUT PANEL
+   ========================================================================= */
+.about-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--g-100) 18%, transparent);
+  animation: fadeIn 0.16s linear both;
+}
+.about-panel {
+  width: min(420px, 100%);
+  padding: 26px 26px 20px;
+  border-radius: 14px;
+  box-shadow: var(--shadow-win);
+  text-align: center;
+  animation: matIn 0.2s var(--ease-ui) both;
+}
+.about-facts {
+  margin: 20px 0 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  text-align: left;
+  font-size: 12.5px;
+}
+.about-facts dt { align-self: center; }
+.about-facts dd { margin: 0; }
+.about-note {
+  margin: 18px 0 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--g-5);
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+  text-align: left;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* =========================================================================
+   CONTROLS
+   ========================================================================= */
+.btn, .act, .filter-pill {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.004em;
+  text-transform: none;
+  color: var(--ink);
+  background: var(--g-0);
+  border: 0.5px solid var(--g-28);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 1px 1.5px color-mix(in srgb, var(--g-100) 7%, transparent);
+  padding: 6px 13px;
+  cursor: pointer;
+  transition: background 0.12s linear, transform 0.1s var(--ease-ui), border-color 0.12s linear;
+}
+.btn:hover:not(:disabled), .act:hover:not(:disabled), .filter-pill:hover { background: var(--g-5); }
+/* Feedback lives on the press, not on the release. */
+.btn:active:not(:disabled), .act:active:not(:disabled), .filter-pill:active { transform: scale(0.975); background: var(--g-8); }
+.btn:disabled, .act:disabled { opacity: 0.45; cursor: default; }
+.btn-primary, .btn-primary:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--g-100));
+  color: var(--accent-ink);
+}
+.btn-primary:hover:not(:disabled) { filter: brightness(1.06); }
+
+.act { min-width: 92px; text-align: center; }
+.act-follow-on, .act-follow-on:hover:not(:disabled) {
+  background: var(--gain); border-color: color-mix(in srgb, var(--gain) 70%, var(--g-100)); color: #fff;
+}
+.act-fade-on, .act-fade-on:hover:not(:disabled) {
+  background: var(--loss); border-color: color-mix(in srgb, var(--loss) 70%, var(--g-100)); color: #fff;
+}
+
+.filter-pill { width: 100%; text-align: left; color: var(--muted); }
+.filter-on, .filter-on:hover {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--g-0);
+}
+
+/* Segmented control — the native answer to "pick exactly one of these". Used by
+   the leaderboard sort, the dossier tabs and the ledger filters, which were
+   each inventing their own toggle. */
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  max-width: 100%;
+  flex-wrap: wrap;
+  border-radius: 7px;
+  border: 0.5px solid var(--line);
+  background: var(--g-5);
+}
+.seg {
+  border: 0;
+  background: transparent;
+  border-radius: 5px;
+  padding: 5px 13px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.14s linear, color 0.14s linear;
+}
+.seg:hover:not(.seg-on) { color: var(--ink); background: color-mix(in srgb, var(--g-100) 5%, transparent); }
+.seg-on {
+  background: var(--g-0);
+  color: var(--ink);
+  box-shadow: 0 0 0 0.5px var(--g-18), 0 1px 2px color-mix(in srgb, var(--g-100) 10%, transparent);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+  background: var(--g-5);
+  border: 0.5px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+/* Tickers are content, not chrome: they stay on the ramp so the highlight keeps
+   meaning "selected / live / focused". */
 .asset-tag {
-  font-family: var(--font-mono), monospace; font-size: 12px; letter-spacing: 0.05em;
-  color: var(--signal);
-  border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px 10px;
+  font-family: var(--font-mono), monospace;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--g-5);
+  border: 0.5px solid var(--g-18);
+  border-radius: 999px;
+  padding: 3px 10px;
   display: inline-block;
 }
-.chip {
-  font-family: var(--font-mono), monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--muted);
-  border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px;
-}
-.act {
-  font-family: var(--font-mono), monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
-  border: 1px solid var(--glass-edge); border-radius: var(--radius);
-  padding: 9px 16px; min-width: 92px;
-  background: var(--glass-tint-soft);
-  -webkit-backdrop-filter: blur(var(--glass-blur-soft));
-  backdrop-filter: blur(var(--glass-blur-soft));
-  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--ink) 18%, transparent);
-  color: var(--muted); cursor: pointer;
-  transition: color 0.18s, border-color 0.18s, background 0.18s, transform 0.18s;
-}
-.act:hover:not(:disabled) { color: var(--ink); border-color: color-mix(in oklch, var(--ink) 45%, transparent); transform: translateY(-1px); }
-.act:disabled { opacity: 0.55; cursor: default; }
-.act-follow-on { background: var(--gain); border-color: var(--gain); color: var(--bg); }
-.act-follow-on:hover:not(:disabled) { color: var(--bg); border-color: var(--gain); }
-.act-fade-on { background: var(--loss); border-color: var(--loss); color: var(--bg); }
-.act-fade-on:hover:not(:disabled) { color: var(--bg); border-color: var(--loss); }
 
-/* upvote / downvote style follow / fade */
+input, textarea, select { font-family: inherit; }
+.field {
+  background: var(--g-0);
+  border: 0.5px solid var(--g-28);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--ink);
+  transition: border-color 0.14s linear, box-shadow 0.14s linear;
+}
+.field::placeholder { color: var(--faint); }
+.field:focus, .field:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+a { color: inherit; text-decoration: none; }
+.link { color: var(--muted); transition: color 0.15s linear; }
+.link:hover { color: var(--accent); }
+.hero-ext { transition: background 0.15s linear, border-color 0.15s linear, color 0.15s linear; }
+.hero-ext:hover { color: var(--ink); border-color: var(--ink); background: var(--g-0); }
+
+/* =========================================================================
+   SURFACES
+   ========================================================================= */
+/* ⚠️ Opaque on purpose: `.panel` wraps the equity curve, the ledger table and
+   the stat grids — the dense-numeric surfaces translucency must stay off. */
+.panel {
+  background: var(--surface);
+  border: 0.5px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+.glass {
+  position: relative;
+  background: var(--mat-regular);
+  -webkit-backdrop-filter: blur(var(--mat-blur)) saturate(var(--mat-sat));
+  backdrop-filter: blur(var(--mat-blur)) saturate(var(--mat-sat));
+  border: 0.5px solid var(--g-18);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+.glass-soft {
+  background: var(--mat-thick);
+  -webkit-backdrop-filter: blur(var(--mat-blur-thin)) saturate(150%);
+  backdrop-filter: blur(var(--mat-blur-thin)) saturate(150%);
+  border: 0.5px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  /* Opt out rather than degrade: an opaque surface is always legible. */
+  .glass, .glass-soft, .menubar, .dock, .mb-menu, .about-panel, .win-bar,
+  .term-search, .report-confirm, .bento-cell {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    background: var(--surface) !important;
+  }
+}
+
+/* ---- motion -------------------------------------------------------------
+   One idea, used three ways: things arrive as a material — slightly small and
+   out of focus — and resolve. Nothing slides in from an edge, because nothing
+   here comes from an edge.
+
+   ⚠️ Distances stay under ~4px and durations under 400ms. Motion at this scale
+   is feedback; anything larger is an effect, and an interface that keeps
+   performing for you is an interface you stop reading. */
+@keyframes materialize {
+  from { opacity: 0; transform: scale(0.988); filter: blur(4px); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+.appear { animation: materialize 0.34s var(--ease-ui) both; }
+
+/* A live feed is breathing, not blinking: the ring around the dot widens and
+   softens on a slow cycle. */
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 26%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 8%, transparent); }
+}
+.live-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: breathe 2.6s ease-in-out infinite;
+}
+
+/* The heading swap: a head passing over tape, left to right. */
+@keyframes scrub {
+  from { clip-path: inset(0 100% 0 0); opacity: 0.35; }
+  to { clip-path: inset(0 0 0 0); opacity: 1; }
+}
+.scrub { animation: scrub 0.42s var(--ease-ui) both; display: inline-block; }
+
+@keyframes settle { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+.num-in { display: inline-block; animation: settle 0.4s var(--ease-ui) both; }
+
+/* =========================================================================
+   CALL CARDS
+   ⚠️ The social-feed card (`.post`), its avatar/body/handle rules and the
+   report-deleted popover were ported from kollateral and are gone: nothing in
+   Kassette renders them. Deletion here is reported by the enclave's own record,
+   not by a reader pressing a button. See claude-docs/PORT_GAPS.md.
+   ========================================================================= */
+
 .votes {
   display: inline-flex; align-items: stretch;
-  border: 1px solid var(--glass-edge); border-radius: 999px; overflow: hidden;
-  background: var(--glass-tint-soft);
-  -webkit-backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.35);
-  backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.35);
-  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--ink) 18%, transparent);
+  border: 0.5px solid var(--g-28);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--g-0);
+  box-shadow: 0 1px 1.5px color-mix(in srgb, var(--g-100) 7%, transparent);
 }
-.votes-open { border-color: var(--ink); }
+.votes-open { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
 .vote {
   display: inline-flex; align-items: center; gap: 6px;
-  font-family: var(--font-mono), monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
-  padding: 8px 16px; background: transparent; color: var(--muted); cursor: pointer; border: 0;
-  transition: color 0.16s, background 0.16s;
+  font-family: inherit; font-size: 12.5px; font-weight: 500;
+  padding: 6px 14px;
+  background: transparent; color: var(--muted); cursor: pointer; border: 0;
+  transition: color 0.12s linear, background 0.12s linear;
 }
-.vote + .vote { border-left: 1px solid var(--line); }
+.vote + .vote { border-left: 0.5px solid var(--g-18); }
 .vote .arrow { font-size: 12px; line-height: 1; }
-.vote.up:hover:not(:disabled), .vote.up:focus-visible { color: var(--gain); background: color-mix(in oklch, var(--gain) 12%, transparent); }
-.vote.down:hover:not(:disabled), .vote.down:focus-visible { color: var(--loss); background: color-mix(in oklch, var(--loss) 12%, transparent); }
-.vote.up-on { background: var(--gain); color: var(--bg); }
-.vote.up-on:hover:not(:disabled) { background: var(--gain); color: var(--bg); }
-.vote.down-on { background: var(--loss); color: var(--bg); }
-.vote.down-on:hover:not(:disabled) { background: var(--loss); color: var(--bg); }
-.vote:disabled { opacity: 0.5; cursor: default; }
+.vote:active:not(:disabled) { background: var(--g-8); }
+.vote.up:hover:not(:disabled), .vote.up:focus-visible { color: var(--gain); background: color-mix(in srgb, var(--gain) 10%, transparent); }
+.vote.down:hover:not(:disabled), .vote.down:focus-visible { color: var(--loss); background: color-mix(in srgb, var(--loss) 10%, transparent); }
+.vote.up-on, .vote.up-on:hover:not(:disabled) { background: var(--gain); color: #fff; }
+.vote.down-on, .vote.down-on:hover:not(:disabled) { background: var(--loss); color: #fff; }
+.vote:disabled { opacity: 0.45; cursor: default; }
 
-/* ---- terminal: twitter-style call cards ---- */
 .tweet {
   position: relative;
   display: flex;
   gap: 14px;
   padding: 18px 20px;
-  background: var(--glass-tint-soft);
-  -webkit-backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.35);
-  backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.35);
-  border: 1px solid var(--glass-edge);
+  background: var(--surface);
+  border: 0.5px solid var(--line);
   border-radius: var(--radius);
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklch, var(--ink) 16%, transparent),
-    0 6px 20px color-mix(in oklch, black 30%, transparent);
-  transition: border-color 0.2s var(--ease-out-quart), transform 0.2s var(--ease-out-quart);
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.18s linear, box-shadow 0.18s linear;
 }
-.tweet:hover { border-color: color-mix(in oklch, var(--ink) 34%, transparent); transform: translateY(-1px); }
+.tweet:hover {
+  border-color: var(--g-18);
+  box-shadow: 0 2px 12px -6px color-mix(in srgb, var(--g-100) 22%, transparent);
+}
 .tw-avatar {
   flex-shrink: 0;
   width: 46px; height: 46px;
   border-radius: 999px;
   overflow: hidden;
   display: grid; place-items: center;
-  border: 1px solid var(--line-strong);
-  background:
-    radial-gradient(oklch(1 0 0 / 0.14) 0.5px, transparent 0.6px) 0 0 / 3px 3px,
-    var(--bg-2);
+  border: 0.5px solid var(--g-18);
+  background: var(--g-5);
   color: var(--ink); font-size: 15px;
-  transition: border-color 0.2s var(--ease-out-quart);
+  transition: border-color 0.15s linear;
 }
-.tw-avatar:hover { border-color: var(--signal); }
-.tw-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; filter: grayscale(0.25) contrast(1.02); }
-.tw-name {
-  font-family: var(--font-display), sans-serif; font-weight: 600; font-size: 15px; color: var(--ink);
+.tw-avatar:hover { border-color: var(--accent); }
+/* Portraits join the monochrome: colour in the interface is reserved. */
+.tw-avatar img, .mini-avatar img, .dossier-avatar img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  filter: grayscale(1) contrast(1.04);
 }
-.tw-name:hover { color: var(--signal); text-decoration: underline; text-underline-offset: 2px; }
-.tw-src { color: var(--faint); transition: color 0.18s; }
+.tw-name { font-weight: 600; font-size: 14px; letter-spacing: -0.01em; color: var(--ink); }
+.tw-name:hover { color: var(--accent); }
+.tw-src { color: var(--faint); transition: color 0.15s linear; }
 .tw-src:hover { color: var(--ink); }
-.tw-report {
-  font-family: var(--font-mono), monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--faint); background: none; border: 0; padding: 0; cursor: pointer;
-  transition: color 0.18s;
-}
-.tw-report:hover { color: var(--loss); }
-/* deleted post banner */
+
 .deleted-banner {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   margin-top: 10px; padding: 9px 12px;
-  border: 1px solid color-mix(in oklch, var(--loss) 45%, var(--line));
-  background: color-mix(in oklch, var(--loss) 10%, var(--surface));
-  border-radius: var(--radius);
+  border: 0.5px solid color-mix(in srgb, var(--loss) 40%, transparent);
+  background: color-mix(in srgb, var(--loss) 7%, transparent);
+  border-radius: var(--radius-sm);
 }
-.db-mark { font-family: var(--font-mono), monospace; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: var(--loss); }
-/* report-deletion confirm — floating popover, does not reflow the card */
-.report-scrim { position: absolute; inset: 0; z-index: 15; }
-.report-confirm {
-  position: absolute; top: 44px; right: 16px; z-index: 16;
-  width: min(320px, calc(100% - 32px));
-  padding: 14px 16px;
-  border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--radius);
-  box-shadow: 0 14px 36px color-mix(in oklch, var(--ink) 18%, transparent);
-  animation: rise 0.2s var(--ease-out-quart) both;
-}
-.report-confirm::before {
-  content: ""; position: absolute; top: -6px; right: 26px;
-  width: 10px; height: 10px; background: var(--surface);
-  border-left: 1px solid var(--line-strong); border-top: 1px solid var(--line-strong);
-  transform: rotate(45deg);
-}
-.rc-btn {
-  font-family: var(--font-mono), monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
-  border: 1px solid var(--line-strong); border-radius: var(--radius);
-  padding: 8px 16px; background: transparent; color: var(--muted); cursor: pointer;
-  transition: color 0.18s, border-color 0.18s, background 0.18s;
-}
-.rc-btn:hover:not(:disabled) { color: var(--ink); border-color: var(--ink); }
-.rc-confirm { background: var(--loss); border-color: var(--loss); color: var(--surface); }
-.rc-confirm:hover:not(:disabled) { color: var(--surface); border-color: var(--loss); opacity: 0.9; }
-.rc-btn:disabled { opacity: 0.55; cursor: default; }
-/* resolution countdown row */
+.db-mark { font-family: var(--font-mono), monospace; font-size: 12px; font-weight: 600; color: var(--loss); }
+
 .resolve-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
-.rlabel {
-  display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
-  font-family: var(--font-mono), monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--faint);
-}
-.rdot { width: 7px; height: 7px; border-radius: 999px; background: var(--faint); }
-.rdot-live { background: var(--signal); box-shadow: 0 0 0 3px color-mix(in oklch, var(--signal) 22%, transparent); }
+.rlabel { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; font-size: 11px; font-weight: 500; color: var(--faint); }
+.rdot { width: 7px; height: 7px; border-radius: 999px; background: var(--g-28); }
+.rdot-live { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
 .rdot-done { background: var(--gain); }
 .resolve-track {
-  flex: 1; height: 5px; border-radius: 999px; overflow: hidden;
-  background: var(--bg-2); border: 1px solid var(--line);
+  flex: 1; height: 6px; border-radius: 999px; overflow: hidden;
+  background: var(--g-8);
+  box-shadow: inset 0 0.5px 1px color-mix(in srgb, var(--g-100) 10%, transparent);
 }
-.resolve-fill {
-  height: 100%; border-radius: 999px;
-  background: repeating-linear-gradient(90deg, var(--muted) 0 3px, transparent 3px 5px);
-  transition: width 0.9s var(--ease-out-expo);
-}
+.resolve-fill { height: 100%; border-radius: 999px; background: var(--g-45); transition: width 0.9s var(--ease-out-expo); }
 .resolve-fill-done { background: var(--gain); }
-.resolve-eta {
-  font-family: var(--font-mono), monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
-  color: var(--ink); white-space: nowrap;
-}
-/* proof status bar (full width, never wraps awkwardly) */
+.resolve-eta { font-family: var(--font-mono), monospace; font-size: 11.5px; font-weight: 500; color: var(--ink); white-space: nowrap; }
+
+/* ---- proof drawer ---- */
 .proof-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   width: 100%; margin-top: 12px;
-  font-family: var(--font-mono), monospace; font-size: 11px; letter-spacing: 0.04em;
+  font-size: 12px;
   color: var(--muted);
-  background: var(--glass-tint-soft); border: 1px solid var(--glass-edge); border-radius: var(--radius);
-  -webkit-backdrop-filter: blur(var(--glass-blur-soft));
-  backdrop-filter: blur(var(--glass-blur-soft));
-  padding: 10px 12px; cursor: pointer; text-align: left;
-  transition: border-color 0.18s, background 0.18s;
+  background: var(--g-2);
+  border: 0.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px; cursor: pointer; text-align: left;
+  transition: border-color 0.15s linear, background 0.15s linear;
 }
-.proof-bar:hover, .proof-bar.open { border-color: var(--line-strong); }
+.proof-bar:hover, .proof-bar.open { border-color: var(--g-18); background: var(--g-5); }
 .proof-bar-verified {
-  background: color-mix(in oklch, var(--gain) 7%, var(--surface));
-  border-color: color-mix(in oklch, var(--gain) 34%, var(--line));
+  background: color-mix(in srgb, var(--gain) 7%, transparent);
+  border-color: color-mix(in srgb, var(--gain) 30%, transparent);
 }
-.proof-bar-verified:hover, .proof-bar-verified.open { border-color: color-mix(in oklch, var(--gain) 55%, var(--line)); }
+.proof-bar-verified:hover, .proof-bar-verified.open { border-color: color-mix(in srgb, var(--gain) 50%, transparent); }
 .proof-bar-left { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
-.proof-title { color: var(--ink); font-weight: 600; text-transform: uppercase; letter-spacing: 0.09em; }
+.proof-title { color: var(--ink); font-weight: 600; font-size: 11.5px; letter-spacing: 0; text-transform: none; }
 .proof-bar-verified .proof-title { color: var(--gain); }
 .proof-check { color: var(--gain); font-weight: 700; }
 .proof-model { color: var(--faint); }
 .proof-model::before { content: "·"; margin-right: 7px; }
-.proof-toggle { color: var(--ink); font-weight: 600; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.proof-toggle { color: var(--ink); font-weight: 500; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
 .proof-chev { color: var(--faint); }
-
-/* small pill (used by the 'verify this inference now' button) */
-.proof-badge {
-  display: inline-flex; align-items: center; gap: 7px; margin-top: 12px;
-  font-family: var(--font-mono), monospace; font-size: 11px; letter-spacing: 0.04em;
-  color: var(--muted);
-  background: var(--bg-2); border: 1px solid var(--line); border-radius: 999px;
-  padding: 6px 13px; cursor: pointer;
-  transition: border-color 0.18s, color 0.18s;
-}
-.proof-badge:hover { border-color: var(--line-strong); color: var(--ink); }
-/* ⚠️ Neutral by default. This dot sits beside "NO ATTESTATION" on unattested
-   calls, and a lime dot there read as a pass. Only the verified variant below
-   earns a colour. */
-.proof-dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; background: var(--faint); box-shadow: 0 0 0 3px color-mix(in oklch, var(--faint) 18%, transparent); }
-.proof-bar-verified .proof-dot { background: var(--gain); box-shadow: 0 0 0 3px color-mix(in oklch, var(--gain) 22%, transparent); animation: proofPulse 2.2s ease-in-out infinite; }
+/* ⚠️ Neutral by default: this dot sits beside "NO ATTESTATION" on unattested
+   calls, and a coloured dot there read as a pass. */
+.proof-dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; background: var(--g-28); }
+.proof-bar-verified .proof-dot { background: var(--gain); box-shadow: 0 0 0 3px color-mix(in srgb, var(--gain) 20%, transparent); animation: proofPulse 2.2s ease-in-out infinite; }
 @keyframes proofPulse {
-  0%, 100% { box-shadow: 0 0 0 3px color-mix(in oklch, var(--gain) 22%, transparent); }
-  50% { box-shadow: 0 0 0 6px color-mix(in oklch, var(--gain) 6%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gain) 20%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--gain) 6%, transparent); }
 }
-@media (prefers-reduced-motion: reduce) { .proof-bar-verified .proof-dot { animation: none; } }
 .proof-panel {
   margin-top: 12px; padding: 14px 16px;
-  background: var(--glass-tint-soft); border: 1px solid var(--glass-edge); border-radius: var(--radius);
-  -webkit-backdrop-filter: blur(var(--glass-blur-soft));
-  backdrop-filter: blur(var(--glass-blur-soft));
-  animation: rise 0.3s var(--ease-out-quart) both;
+  background: var(--g-2);
+  border: 0.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  animation: matIn 0.2s var(--ease-ui) both;
+  transform-origin: top center;
 }
 .proof-panel > div:last-of-type { border-bottom: 0; }
 
-/* ---- terminal: 3-column twitter shell ---- */
+/* =========================================================================
+   TERMINAL — 3-column shell
+   ========================================================================= */
 .term-left, .term-right { display: none; }
-.term-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 24px;
-}
-@media (min-width: 900px) {
-  .term-grid { grid-template-columns: 220px minmax(0, 1fr); }
+.term-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+@container win (min-width: 820px) {
+  .term-grid { grid-template-columns: 200px minmax(0, 1fr); }
   .term-left { display: block; }
 }
-@media (min-width: 1160px) {
-  .term-grid { grid-template-columns: 220px minmax(0, 1fr) 320px; }
+@container win (min-width: 1120px) {
+  .term-grid { grid-template-columns: 210px minmax(0, 1fr) 300px; }
   .term-right { display: block; }
 }
-.term-sticky { position: sticky; top: 88px; }
+/* Outside a window — the compact layout below 900px — the viewport is the
+   container, and there is only ever one column. */
+/* Sticky inside the window's own scroll area, so the offset is from the top of
+   the window body rather than from the viewport. */
+.term-sticky { position: sticky; top: 8px; }
 .term-feed-head {
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-  padding-bottom: 14px; margin-bottom: 16px;
-  border-bottom: 1px solid var(--line);
-  font-family: var(--font-mono), monospace; font-size: 13px; color: var(--ink);
+  padding-bottom: 12px; margin-bottom: 16px;
+  border-bottom: 0.5px solid var(--line);
+  font-size: 13px; color: var(--ink);
 }
 .term-search {
-  display: flex; align-items: center; gap: 8px;
-  border: 1px solid var(--glass-edge); border-radius: var(--radius);
-  background: var(--glass-tint-soft);
-  -webkit-backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.35);
-  backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.35);
-  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--ink) 16%, transparent);
-  padding: 9px 11px;
-  transition: border-color 0.18s, box-shadow 0.18s;
+  display: flex; align-items: center; gap: 7px;
+  border: 0.5px solid var(--g-28);
+  border-radius: 7px;
+  background: var(--g-0);
+  padding: 7px 10px;
+  transition: border-color 0.14s linear, box-shadow 0.14s linear;
 }
 .term-search:focus-within {
-  border-color: color-mix(in oklch, var(--signal) 55%, var(--line-strong));
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklch, var(--ink) 16%, transparent),
-    0 0 0 3px color-mix(in oklch, var(--signal) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 26%, transparent);
 }
 .term-search input {
   flex: 1; min-width: 0; background: transparent; border: 0; outline: 0;
-  color: var(--ink); font-family: var(--font-mono), monospace; font-size: 12px;
+  color: var(--ink); font-family: inherit; font-size: 13px;
 }
 .term-search input::placeholder { color: var(--faint); }
-.filter-pill {
-  text-align: left;
-  font-family: var(--font-mono), monospace; font-size: 12px; letter-spacing: 0.04em;
-  color: var(--muted);
-  background: color-mix(in oklch, var(--surface) 40%, transparent);
-  -webkit-backdrop-filter: blur(var(--glass-blur-soft));
-  backdrop-filter: blur(var(--glass-blur-soft));
-  border: 1px solid var(--glass-edge); border-radius: var(--radius);
-  padding: 8px 12px; cursor: pointer;
-  transition: color 0.18s, border-color 0.18s, background 0.18s;
-}
-.filter-pill:hover { color: var(--ink); border-color: var(--line-strong); }
-.filter-on { background: var(--ink); border-color: var(--ink); color: var(--surface); }
-.filter-on:hover { color: var(--surface); }
+
 .side-card {
-  background: var(--glass-tint);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-  border: 1px solid var(--glass-edge);
+  background: var(--surface);
+  border: 0.5px solid var(--line);
   border-radius: var(--radius);
-  box-shadow:
-    inset 0 1px 0 var(--glass-specular),
-    0 10px 34px color-mix(in oklch, black 38%, transparent);
+  box-shadow: var(--shadow-card);
   padding: 16px 16px 18px;
 }
-.wtf-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 0; border-bottom: 1px solid var(--line);
-}
+.wtf-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 0.5px solid var(--line); }
 .wtf-row:last-child { border-bottom: 0; }
 .mini-avatar {
   flex-shrink: 0; width: 34px; height: 34px; border-radius: 999px; overflow: hidden;
-  display: grid; place-items: center; border: 1px solid var(--line-strong);
-  background: var(--bg-2); color: var(--ink); font-size: 12px;
+  display: grid; place-items: center; border: 0.5px solid var(--g-18);
+  background: var(--g-5); color: var(--ink); font-size: 12px;
 }
-.mini-avatar img { width: 100%; height: 100%; object-fit: cover; filter: grayscale(0.25); }
-.trend-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.trend-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 0.5px solid var(--line); }
 .trend-row:last-child { border-bottom: 0; }
 
 /* ---- dossier ---- */
 .dossier-avatar {
   flex-shrink: 0; width: 72px; height: 72px; border-radius: 999px; overflow: hidden;
-  display: grid; place-items: center; border: 1px solid var(--line-strong);
-  background: var(--bg-2); color: var(--ink); font-size: 24px;
+  display: grid; place-items: center; border: 0.5px solid var(--g-18);
+  background: var(--g-5); color: var(--ink); font-size: 24px;
 }
-.dossier-avatar img { width: 100%; height: 100%; object-fit: cover; filter: grayscale(0.3) contrast(1.03); }
-@keyframes numIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-.num-in { display: inline-block; animation: numIn 0.6s var(--ease-out-expo) both; }
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-  html { scroll-behavior: auto; }
-}
-
-/* watchlist row hover: dither wash + shift */
-.wl-row { transition: background 0.25s var(--ease-out-quart), padding-left 0.25s var(--ease-out-quart); }
-.wl-row:hover { background: var(--surface); padding-left: 14px !important; }
+.wl-row { border-radius: var(--radius-sm); transition: background 0.15s linear, padding-left 0.2s var(--ease-ui); }
+.wl-row:hover { background: var(--g-5); padding-left: 12px !important; }
 .wl-row:hover .label { color: var(--muted); }
 
-/* ---- landing: value-prop bento ---- */
-/* deliberate mixed spans on a 6-col field: one tall feature cell, two stacked
-   small cells, one full-width banner. Hairline seams via 1px gap over --line. */
+/* =========================================================================
+   THE DESK
+   One screen, never scrolled, edge to edge. The tape is oversized and bled off
+   the left; the copy hangs off the right and overlaps it. The asymmetry is the
+   point — a centred hero would make the photograph an illustration, and it is
+   the argument.
+   ========================================================================= */
+.desk {
+  /* ⚠️ `absolute`, never `fixed`, and never z-indexed. Chrome treats a fixed
+     element as a stacking context, and a stacking context isolates the tape's
+     `mix-blend-mode: multiply` — its white studio background then has nothing
+     to multiply into and comes back as a visible white box. */
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  padding: calc(var(--menubar-h) + 12px) clamp(20px, 4vw, 68px) calc(var(--dock-h) + 4px);
+}
+
+.tape-stage {
+  position: absolute;
+  top: 50%;
+  left: clamp(-22vw, -12vw, -6vw);
+  transform: translateY(-50%);
+  /* Cropped by the left edge but still an object: at 118vw it stopped reading
+     as a cassette on a desk and became wallpaper. */
+  width: min(1180px, 84vw);
+  margin: 0;
+  pointer-events: none;
+}
+/* ⚠️ `!important` on the blend is deliberate. This is the one declaration that
+   makes the photograph part of the desk instead of a white rectangle sitting on
+   it, and it has been lost twice to something else's convenience. It is also
+   asserted at runtime (Desk.tsx) and in scripts/e2e.ts. */
+.tape {
+  display: block;
+  width: 100%;
+  height: auto;
+  mix-blend-mode: multiply !important;
+  isolation: auto !important;
+  /* The photograph is desaturated and pushed for contrast before it is blended.
+     ⚠️ It will still pick up the desk's hue: `multiply` returns the product of
+     the image and whatever is beneath it, so a violet desk gives a violet
+     cassette no matter how grey the source is. That is the blend doing its job,
+     not the filter failing to. */
+  filter: grayscale(1) contrast(1.16) brightness(1.03);
+}
+
+.desk-copy {
+  position: relative;
+  margin-left: auto;
+  width: min(620px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+}
+.desk-h1 {
+  margin: 0;
+  font-size: clamp(38px, 6.4vw, 96px);
+  line-height: 0.94;
+  letter-spacing: -0.04em;
+  /* ⚠️ MEASURED, not guessed — and the measurement is the whole feature. The
+     tallest heading here is three lines ("NEVER LEAVE YOUR WALLET."), at 2.82em
+     across every width from 1000px up. Reserve less and hovering a mark grows
+     the column, pushes the panel down, slides the mark out from under the
+     cursor, fires mouseleave, and the hero swaps back — which then pulls the
+     mark back under the cursor and starts again. The result is a heading stuck
+     mid-wipe forever. Re-measure with scripts/e2e.ts if the copy changes. */
+  min-height: 2.85em;
+}
+.desk-body {
+  max-width: 42ch;
+  margin: 18px 0 0;
+  font-size: clamp(13.5px, 1.1vw, 16px);
+  line-height: 1.55;
+  /* Measured the same way: the FCC copy is the tallest at 9.3em. */
+  min-height: 9.4em;
+  transition: color 0.2s linear;
+}
+
+/* A wash of paper over the right of the desk, so the copy sits on the ground
+   rather than on the photograph. Painted after the tape and before the copy —
+   a plain positioned div, never z-indexed, so the blend below it survives. */
+.desk-wash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 28%,
+    color-mix(in srgb, var(--desk-1) 42%, transparent) 52%,
+    color-mix(in srgb, var(--desk-1) 74%, transparent) 78%
+  );
+}
+@media (max-width: 899px) { .desk-wash { display: none; } }
+
+/* The actions and the primitives, with no material behind them. They sit
+   directly on the desk: the glass panel that used to be here was one more
+   surface between the reader and the photograph, and it flickered every time a
+   mark under it changed. */
+.desk-panel {
+  margin-top: 22px;
+  width: 100%;
+}
+.desk-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.desk-marks { margin-top: 16px; }
+.desk-mark-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: clamp(14px, 2.2vw, 30px);
+  flex-wrap: wrap;
+}
+.desk-mark {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--font-mono), monospace;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--faint);
+  transition: color 0.18s linear;
+}
+.desk-mark[data-on="true"] { color: var(--ink); }
+
+.desk-note {
+  position: absolute;
+  left: clamp(20px, 4vw, 68px);
+  bottom: 14px;
+  max-width: 40ch;
+  margin: 0;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+/* Short screens: the reserve and the note are the first things to give. */
+@media (max-height: 760px) {
+  .desk-h1 { font-size: clamp(30px, 4.4vw, 62px); }
+  .desk-note { display: none; }
+}
+/* No pointer, no reserve: the shift this guards against is a cursor sliding out
+   from under a hovered mark, which a tap cannot suffer, and the whitespace
+   costs a phone most of a screen. */
+@media (hover: none) {
+  .desk-h1 { min-height: 0; }
+  .desk-body { min-height: 0; }
+}
+
+/* Stacked, and the tape moves behind the words rather than beside them. */
+@media (max-width: 899px) {
+  .desk {
+    position: static;
+    height: auto;
+    overflow: visible;
+    padding: 28px 20px 36px;
+    display: block;
+  }
+  .tape-stage {
+    position: relative;
+    top: auto;
+    left: auto;
+    transform: none;
+    width: 128%;
+    margin: 24px 0 0 -14%;
+  }
+  .desk-copy { width: 100%; text-align: left; align-items: flex-start; margin-left: 0; }
+  .desk-body { max-width: none; }
+  .desk-actions, .desk-mark-row { justify-content: flex-start; }
+  .desk-note { position: static; max-width: none; margin-top: 24px; }
+}
+
+/* ---- the tape ----------------------------------------------------------
+   The source photograph is a clear cassette shot on white. `multiply` is the
+   compositing mode that belongs to it: white multiplies to whatever is beneath
+   (so the studio background disappears into the desk) while the black tape and
+   the shell's grey edges print straight through. That is also why the desk is
+   light — over a dark ground, multiply drives the whole image to black.
+   See `.tape` in THE DESK above. */
+.tape-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: -4px;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--g-18);
+  font-family: var(--font-mono), monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* value-prop widgets */
 .bento {
   display: grid;
-  gap: 1px;
-  background: var(--glass-edge);
-  border: 1px solid var(--glass-edge);
-  border-radius: var(--radius);
-  overflow: hidden;
+  gap: 12px;
   grid-template-columns: repeat(6, 1fr);
   grid-auto-rows: minmax(184px, auto);
 }
 .bento-cell {
   position: relative;
-  background: var(--glass-tint-soft);
-  -webkit-backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.35);
-  backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.35);
-  padding: 28px 26px 30px;
+  background: color-mix(in srgb, var(--g-0) 82%, transparent);
+  -webkit-backdrop-filter: blur(var(--mat-blur)) saturate(var(--mat-sat));
+  backdrop-filter: blur(var(--mat-blur)) saturate(var(--mat-sat));
+  border: 0.5px solid var(--g-12);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 30px -22px color-mix(in srgb, var(--g-100) 40%, transparent);
+  padding: 26px 24px 28px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .bento-lg { grid-column: span 4; grid-row: span 2; }
 .bento-sm { grid-column: span 2; grid-row: span 1; }
 .bento-wide { grid-column: span 6; grid-row: span 1; }
-@media (max-width: 900px) {
+@container win (max-width: 900px) {
   .bento { grid-template-columns: repeat(2, 1fr); }
   .bento-lg { grid-column: span 2; grid-row: span 1; }
   .bento-sm { grid-column: span 1; }
   .bento-wide { grid-column: span 2; }
 }
-@media (max-width: 560px) {
+@container win (max-width: 560px) {
   .bento { grid-template-columns: 1fr; }
   .bento-lg, .bento-sm, .bento-wide { grid-column: span 1; }
 }
-/* the "deleted stays on record" red flag, reusing the deletion grammar */
+@media (max-width: 900px) {
+  .bento { grid-template-columns: 1fr; }
+  .bento-lg, .bento-sm, .bento-wide { grid-column: span 1; }
+}
 .bento-flag {
   align-self: flex-start;
   display: inline-flex; align-items: center; gap: 9px;
   margin-top: 18px; padding: 6px 12px;
-  border: 1px solid color-mix(in oklch, var(--loss) 45%, var(--line));
-  background: color-mix(in oklch, var(--loss) 10%, var(--surface));
-  border-radius: var(--radius);
+  border: 0.5px solid color-mix(in srgb, var(--loss) 40%, transparent);
+  background: color-mix(in srgb, var(--loss) 7%, transparent);
+  border-radius: 999px;
 }
 
-/* ---- state badges ---- */
-/* Every call state is carried by a text label, never by an emoji alone. The
-   browser pass on 2026-08-13 found 🗑️ and ⏳ rendering as tofu on a machine with
-   no emoji fonts, which made those states invisible rather than merely ugly
-   (claude-docs/NEXT_STEPS.md §5). The glyph here is decorative; the word is the
-   information. */
+/* A band of magnetic tape: the one place the page goes fully black. Vertical
+   hairlines at two pitches read as leader tape under a head, and the caption
+   sits on top of it. Replaces the illustration blocks, and unlike them it costs
+   no canvas, no animation frame and no WebGL context. */
+.tape-band {
+  position: relative;
+  background-color: var(--dark);
+  color: var(--dark-ink);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background-image:
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--g-0) 16%, transparent) 0 1px, transparent 1px 9px),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--g-0) 7%, transparent) 0 1px, transparent 1px 3px);
+}
+.tape-band::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 40%, color-mix(in srgb, var(--g-100) 55%, transparent));
+}
+.tape-band > * { position: relative; z-index: 1; }
+
+/* ---- wallet ---- */
+.wallet-form {
+  margin-top: 26px;
+  padding: 20px 22px;
+  border: 0.5px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.wallet-id {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 26px;
+  padding: 16px 20px;
+  border: 0.5px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.wallet-facts {
+  display: grid;
+  gap: 1px;
+  background: var(--line);
+  border: 0.5px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.wallet-row { background: var(--surface); padding: 12px 16px; display: grid; gap: 4px; }
+.wallet-note {
+  margin-top: 28px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--g-5);
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+/* =========================================================================
+   STATE BADGES
+   ========================================================================= */
+/* Every call state is carried by a word, never by a glyph alone — 🗑️/⏳ rendered
+   as tofu on a machine with no emoji fonts, which made those states invisible
+   rather than merely ugly. The glyph is decoration; the word is the fact. */
 .badge {
   display: inline-flex; align-items: center; gap: 5px;
-  font-family: var(--font-mono), monospace;
-  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
-  border: 1px solid var(--line); border-radius: 999px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  border: 0.5px solid var(--line); border-radius: 999px;
   padding: 3px 9px; white-space: nowrap;
   color: var(--muted);
+  background: var(--g-5);
 }
 .badge-glyph { font-size: 9px; line-height: 1; opacity: 0.8; }
-.badge-deleted { color: var(--loss); border-color: color-mix(in oklch, var(--loss) 45%, var(--line)); background: color-mix(in oklch, var(--loss) 8%, transparent); }
-.badge-open { color: var(--muted); border-color: var(--line-strong); }
-.badge-attested { color: var(--gain); border-color: color-mix(in oklch, var(--gain) 40%, var(--line)); background: color-mix(in oklch, var(--gain) 7%, transparent); }
-.badge-warn { color: var(--loss); border-color: color-mix(in oklch, var(--loss) 40%, var(--line)); }
+.badge-deleted { color: var(--loss); border-color: color-mix(in srgb, var(--loss) 40%, transparent); background: color-mix(in srgb, var(--loss) 7%, transparent); }
+.badge-open { color: var(--muted); border-color: var(--g-18); }
+.badge-attested { color: var(--gain); border-color: color-mix(in srgb, var(--gain) 36%, transparent); background: color-mix(in srgb, var(--gain) 8%, transparent); }
+.badge-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 36%, transparent); background: color-mix(in srgb, var(--warn) 8%, transparent); }
 
 /* recharts */
 .recharts-cartesian-grid line { stroke: var(--line); }
 .recharts-text { fill: var(--faint); font-family: var(--font-mono), monospace; font-size: 10px; }
+
+/* =========================================================================
+   COMPACT — no window management on a phone
+   Below this width there is no room to arrange windows, so the front app fills
+   the screen and the chrome that would manage it is hidden rather than shrunk.
+   ========================================================================= */
+/* The bar has a fixed 30px of room and no ability to wrap, so on a narrow
+   screen its optional parts are dropped in order of how little they carry:
+   the wordmark first, then the window list, then the network's label. */
+@media (max-width: 900px) {
+  .mb-logo { display: none; }
+}
+@media (max-width: 700px) {
+  /* The centred wordmark is the first thing to go: at this width it collides
+     with the clock, and a mark that overlaps the time is worse than no mark. */
+  .mb-brand { display: none; }
+}
+@media (max-width: 620px) {
+  .menubar .mb-item:nth-of-type(3) { display: none; }
+  .mb-net { padding: 0 4px; font-size: 0; gap: 0; }
+  .mb-clock { font-size: 12px; }
+}
+
+@media (max-width: 899px) {
+  .win {
+    position: static !important;
+    width: auto !important;
+    height: auto !important;
+    max-height: none;
+    margin: 8px 8px 0;
+    transform: none !important;
+    border-radius: 10px;
+  }
+  .win:not(.win-front) { display: none; }
+  .win-body { overflow: visible; }
+  .win-grip { display: none; }
+  .win-bar { position: sticky; top: 0; z-index: 20; }
+  .dock-app { width: 46px; height: 46px; }
+  .dock-app:hover, .dock-app:focus-visible { width: 46px; }
+  .dock-word { display: none; }
+  .mb-doc { display: none; }
+}
+
+/* =========================================================================
+   REDUCED MOTION — a gentler equivalent, not the absence of feedback.
+   ========================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  html { scroll-behavior: auto; }
+  .live-dot, .wall { animation: none; }
+}

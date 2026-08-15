@@ -269,6 +269,8 @@ export interface ExecutionRow {
   status: string;
   reason: string | null;
   createdAt: number;
+  /** True when seed-demo.ts invented this row; its identifiers link nowhere. */
+  synthetic: boolean;
 }
 
 export interface ExecutionsByCaller {
@@ -303,10 +305,10 @@ export interface ExecutionsResponse {
  * Every confirmed copy/fade, optionally narrowed to one XRPL account.
  *
  * ⚠️ There is no realized-P&L column here and that is not an oversight.
- * The reference portfolio reports `yield_usd` per trade because its executor
- * swaps through Uniswap and can read both legs. Kassette's unit of execution is
- * an XRPL Payment that changes an FXRP position; nothing in this schema records
- * what that position was later worth, so a P&L number would have to be invented.
+ * Reporting yield per trade requires an executor that can read both legs of a
+ * swap. Kassette's unit of execution is an XRPL Payment that changes an FXRP
+ * position; nothing in this schema records what that position was later worth,
+ * so a P&L number would have to be invented.
  * The page says so rather than showing a confident zero.
  */
 export function listExecutions(xrplAccount?: string, database?: DatabaseSync): ExecutionsResponse {
@@ -317,7 +319,7 @@ export function listExecutions(xrplAccount?: string, database?: DatabaseSync): E
   const rows = db
     .prepare(
       `SELECT e.id, e.call_id, e.mode, e.xrpl_account, e.xrpl_tx_hash, e.direction,
-              e.fxrp_amount, e.flare_tx_hash, e.status, e.reason, e.created_at,
+              e.fxrp_amount, e.flare_tx_hash, e.status, e.reason, e.created_at, e.synthetic,
               i.handle, i.display_name, p.content, c.asset_symbol
          FROM executions e
          JOIN calls c ON c.id = e.call_id
@@ -330,7 +332,7 @@ export function listExecutions(xrplAccount?: string, database?: DatabaseSync): E
       id: number; call_id: number; mode: "copy" | "fade"; xrpl_account: string;
       xrpl_tx_hash: string | null; direction: "long" | "short"; fxrp_amount: string | null;
       flare_tx_hash: string | null; status: string; reason: string | null; created_at: number;
-      handle: string; display_name: string | null; content: string; asset_symbol: string | null;
+      synthetic: number; handle: string; display_name: string | null; content: string; asset_symbol: string | null;
     }[];
 
   const executions: ExecutionRow[] = rows.map((r) => ({
@@ -349,6 +351,7 @@ export function listExecutions(xrplAccount?: string, database?: DatabaseSync): E
     status: r.status,
     reason: r.reason,
     createdAt: r.created_at,
+    synthetic: r.synthetic === 1,
   }));
 
   // fxrp_amount is TEXT in the schema so an exact on-chain integer survives the

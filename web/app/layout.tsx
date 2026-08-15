@@ -1,18 +1,23 @@
 import type { Metadata } from "next";
-import { Bricolage_Grotesque, Spline_Sans_Mono, Pixelify_Sans } from "next/font/google";
+import { Inter, JetBrains_Mono, Pixelify_Sans } from "next/font/google";
 import "./globals.css";
-import { Header } from "../components/Header";
-import { DitherArt } from "../components/DitherArt";
+import { MenuBar } from "../components/desktop/MenuBar";
+import { Dock } from "../components/desktop/Dock";
+import { Desktop } from "../components/desktop/Desktop";
+import { Desk } from "../components/desktop/Desk";
+import { GlassFilter } from "../components/desktop/GlassFilter";
+import { Wall } from "../components/desktop/Wall";
 
-// Display grotesque (headings), pixel accent (wordmark), and the terminal mono
-// that carries all data. The reference design notes describe a dark palette that
-// its own implementation abandoned; globals.css is the authority here.
-const display = Bricolage_Grotesque({
-  variable: "--font-display",
+// Inter stands in for SF on machines without it — the CSS stack in globals.css
+// asks for -apple-system first, so a Mac renders in the real thing. JetBrains
+// Mono carries every number and hash (SF Mono's role). Pixelify is kept for one
+// job only: the wordmark.
+const ui = Inter({
+  variable: "--font-ui",
   subsets: ["latin"],
-  weight: ["400", "600", "700", "800"],
+  weight: ["400", "500", "600", "700"],
 });
-const mono = Spline_Sans_Mono({
+const mono = JetBrains_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
   weight: ["400", "500", "600"],
@@ -33,36 +38,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${display.variable} ${mono.variable} ${pixel.variable} h-full antialiased`}
+      className={`${ui.variable} ${mono.variable} ${pixel.variable} h-full antialiased`}
     >
       <body className="min-h-full">
-        {/* ambient dither behind everything: living paper grain */}
-        <div aria-hidden className="app-dither">
-          <DitherArt shape="field" gap={5} className="h-full w-full" />
-        </div>
-        <Header />
+        {/* the desk itself — see Wall.tsx */}
+        <Wall />
+
+        <GlassFilter />
+        <MenuBar />
+        <Desk />
+        {/* Routes render nothing but a launcher; the windows they ask for are
+            drawn by <Desktop/>, which outlives any single route. */}
         {children}
-        {/*
-          Standing disclaimer rather than a per-page one. Two of Kassette's
-          non-negotiables (HANDOFF.md §2.1, §2.2) are claims about what this is NOT,
-          and both are easiest to forget precisely when the numbers look convincing.
-          The reference has no equivalent — it is kept because the constraint is ours.
-        */}
-        <footer
-          style={{
-            borderTop: "1px solid var(--line)",
-            marginTop: 64,
-            padding: "22px 24px",
-            color: "var(--faint)",
-            fontSize: 11,
-            lineHeight: 1.7,
-          }}
-        >
-          <div style={{ maxWidth: 1180, margin: "0 auto" }}>
-            Prices are real, Merkle-proven FTSO anchor feeds on Coston2 testnet. Callers shown are
-            fictional demo data. Wallet attribution is self-disclosed only — never inferred.
-          </div>
-        </footer>
+        <Desktop />
+        <Dock />
       </body>
     </html>
   );

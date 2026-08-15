@@ -1,6 +1,5 @@
-// SQLite via Node's built-in driver — no native module to compile, and the same
-// synchronous prepare().get()/.all()/.run() surface the reference queries were
-// written against, so they port unchanged.
+// SQLite via Node's built-in driver — no native module to compile, and a
+// synchronous prepare().get()/.all()/.run() surface.
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import path from "node:path";

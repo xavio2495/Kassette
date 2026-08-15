@@ -158,26 +158,35 @@ describe("SaidVsDid", () => {
     expect(html).toContain("No contradictions found");
   });
 
-  it("renders a contradiction case with its gap and link", () => {
-    const html = renderToStaticMarkup(
-      <SaidVsDid
-        data={{
-          ...base,
-          wallet: "0xabc",
-          walletEventsChecked: 1,
-          cases: [
-            {
-              call: { id: 1, content: "buy XRP", url: "https://x.com/a/1", posted_at: 1_700_000_000, asset_symbol: "XRP" },
-              event: { tx_hash: "0x" + "ab".repeat(32), usd_value: 27500, occurred_at: 1_700_021_600, side: "sell" },
-              gapHours: 6,
-              kind: "sold_after_long",
-            },
-          ],
-        }}
-      />
-    );
+  const contradiction = (synthetic: boolean) => ({
+    ...base,
+    wallet: "0xabc",
+    walletEventsChecked: 1,
+    cases: [
+      {
+        call: { id: 1, content: "buy XRP", url: "https://x.com/a/1", posted_at: 1_700_000_000, asset_symbol: "XRP" },
+        event: { tx_hash: "0x" + "ab".repeat(32), usd_value: 27500, occurred_at: 1_700_021_600, side: "sell", synthetic },
+        gapHours: 6,
+        kind: "sold_after_long" as const,
+      },
+    ],
+  });
+
+  it("renders a contradiction case with its gap", () => {
+    const html = renderToStaticMarkup(<SaidVsDid data={contradiction(false)} />);
     expect(html).toContain("Said long, then sold");
     expect(html).toContain("6.0h");
     expect(html).toContain("$27,500");
+  });
+
+  // Whether a seeded transfer gets an explorer link is asserted in
+  // scripts/e2e.ts, not here: the tx reference lives in the detail panel, which
+  // only exists once a case row is expanded, so renderToStaticMarkup cannot see
+  // it in either variant. Asserting its absence here would pass for the wrong
+  // reason — the string is missing from the collapsed markup regardless.
+  it("collapses cases by default, so the detail panel is not in the static markup", () => {
+    const html = renderToStaticMarkup(<SaidVsDid data={contradiction(true)} />);
+    expect(html).toContain("Said long, then sold");
+    expect(html).not.toContain("coston2-explorer.flare.network/tx/");
   });
 });

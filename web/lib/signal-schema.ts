@@ -1,4 +1,4 @@
-// The extraction contract, ported from the reference implementation.
+// The extraction contract.
 //
 // This closed schema is the containment boundary for the one non-deterministic
 // step in the product. A post is attacker-controlled text; both Flare skills warn
@@ -23,7 +23,7 @@ export interface Signal {
 }
 
 // Precision over recall: below this, the call is filed AMBIGUOUS and shown but
-// never scored. The reference made it env-tunable because model calibration varies.
+// never scored. Env-tunable because model calibration varies.
 export const CONFIDENCE_THRESHOLD = Number(process.env.EXTRACTION_CONFIDENCE_THRESHOLD ?? "0.85");
 
 export const DEFAULT_EXPIRY_DAYS: Record<string, number> = {

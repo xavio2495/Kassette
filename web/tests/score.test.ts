@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { callPnl, dossierStats } from "../lib/score";
 
-// Ported from the reference test suite; benchmark is XRP.
+// The benchmark leg is XRP.
 describe("scoring", () => {
   it("long call math", () => {
     expect(callPnl(2.0, 1.0, "long").retPct).toBe(-50);

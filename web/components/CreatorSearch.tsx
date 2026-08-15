@@ -106,7 +106,7 @@ export function CreatorSearch({
             onClick={() => { setQ(""); setOpen(false); }}
             style={{
               display: "grid", placeItems: "center", width: 22, height: 22, flexShrink: 0,
-              background: "var(--faint)", color: "var(--bg)", border: 0, borderRadius: "50%",
+              background: "var(--muted)", color: "var(--g-0)", border: 0, borderRadius: "50%",
               cursor: "pointer", fontSize: 12, lineHeight: 1,
             }}
           >

@@ -2,18 +2,17 @@
 
 // Plain, deliberately unstyled primitives.
 //
-// The reference frontend spec opens by saying to build the
-// *functionality* first — routing, data, actions, states — with no styling, and to
-// treat visual design as a separate later pass. These exist so every page spells its
-// three states the same way rather than each inventing its own, which is what makes
-// "every page has loading / empty / error" checkable rather than aspirational.
+// Functionality first — routing, data, actions, states — with visual design as a
+// separate later pass. These exist so every page spells its three states the same
+// way rather than each inventing its own, which is what makes "every page has
+// loading / empty / error" checkable rather than aspirational.
 
 import { useEffect, useState } from "react";
 import type { ApiResult } from "../lib/api";
 
 export function Loading({ what }: { what: string }) {
   return (
-    <p role="status" className="label flick">
+    <p role="status" className="label appear">
       {what}…
     </p>
   );

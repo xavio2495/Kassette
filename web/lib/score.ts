@@ -1,6 +1,5 @@
-// Ported from the reference implementation. Deterministic arithmetic
-// with no model in its path (HANDOFF.md §2.4) — the only change is the
-// benchmark asset: the reference held ETH, Kassette holds XRP.
+// Deterministic arithmetic with no model in its path (HANDOFF.md §2.4).
+// The benchmark asset is XRP, matching what the calls are scored in.
 export const NOTIONAL = 1000;
 
 export function callPnl(entry: number, mark: number, direction: "long" | "short", notional = NOTIONAL) {

@@ -1,12 +1,12 @@
-// Per-caller aggregation, ported from the reference implementation.
+// Per-caller aggregation.
 //
-// Two things carry over deliberately. Deleting a call never removes it from the
+// Two properties are deliberate. Deleting a call never removes it from the
 // P&L — you cannot delete your way to a good record — and deletions are tallied
 // separately so the dossier can say how much loss was hidden. And the empty
 // states cite counts ("N wallet events checked") rather than asserting innocence.
 //
-// The benchmark now reads from real `bench_entry` / `bench_latest` mark kinds
-// instead of the reference d1/d7-disambiguated-by-source workaround.
+// The benchmark reads from real `bench_entry` / `bench_latest` mark kinds rather
+// than being smuggled into d1/d7 kinds disambiguated by `source`.
 import type { DatabaseSync } from "node:sqlite";
 import { getDb } from "./db";
 import { NOTIONAL, callPnl, dossierStats } from "./score";
@@ -35,7 +35,7 @@ export interface DossierCall {
 
 export interface SaidVsDidCase {
   call: { id: number; content: string; url: string; posted_at: number; asset_symbol: string | null };
-  event: { tx_hash: string; usd_value: number | null; occurred_at: number; side: string };
+  event: { tx_hash: string; usd_value: number | null; occurred_at: number; side: string; synthetic: boolean };
   gapHours: number;
   kind: string;
 }
@@ -234,7 +234,7 @@ function buildSaidVsDid(
   const rows = db
     .prepare(
       `SELECT c.id AS call_id, p.content, p.url, p.posted_at, c.asset_symbol,
-              we.tx_hash, we.usd_value, we.occurred_at, we.side, ct.gap_hours
+              we.tx_hash, we.usd_value, we.occurred_at, we.side, we.synthetic, ct.gap_hours
          FROM contradictions ct
          JOIN calls c ON c.id = ct.call_id
          JOIN posts p ON p.id = c.post_id
@@ -244,7 +244,7 @@ function buildSaidVsDid(
     )
     .all(influencerId) as unknown as {
       call_id: number; content: string; url: string; posted_at: number; asset_symbol: string | null;
-      tx_hash: string; usd_value: number | null; occurred_at: number; side: string; gap_hours: number;
+      tx_hash: string; usd_value: number | null; occurred_at: number; side: string; synthetic: number; gap_hours: number;
     }[];
 
   return {
@@ -253,7 +253,7 @@ function buildSaidVsDid(
     walletEventsChecked,
     cases: rows.map((r) => ({
       call: { id: r.call_id, content: r.content, url: r.url, posted_at: r.posted_at, asset_symbol: r.asset_symbol },
-      event: { tx_hash: r.tx_hash, usd_value: r.usd_value, occurred_at: r.occurred_at, side: r.side },
+      event: { tx_hash: r.tx_hash, usd_value: r.usd_value, occurred_at: r.occurred_at, side: r.side, synthetic: r.synthetic === 1 },
       gapHours: r.gap_hours,
       // A long call contradicted by a sale, or a short contradicted by a buy.
       kind: r.side === "sell" ? "sold_after_long" : "bought_after_short",

@@ -11,6 +11,7 @@
 // place so a redeploy is a cache flush rather than a hunt.
 
 import { createPublicClient, http, type PublicClient } from "viem";
+import { COSTON2_WALLET_ID, OP_FXRP_REDEEM } from "./smart-accounts";
 
 export const COSTON2_RPC = process.env.COSTON2_RPC_URL ?? "https://coston2-api.flare.network/ext/C/rpc";
 
@@ -29,6 +30,10 @@ const registryAbi = [
 
 const macAbi = [
   { name: "getPersonalAccount", type: "function", stateMutability: "view", inputs: [{ type: "string" }], outputs: [{ type: "address" }] },
+  // The XRPL Payment amount for a non-mint instruction — in drops, per instruction id.
+  // Kassette used to tell the user to take this from their wallet's quote; Flare's own
+  // smart-accounts-cli reads it here, and so can we (1000 drops on Coston2 today).
+  { name: "getInstructionFee", type: "function", stateMutability: "view", inputs: [{ type: "uint256" }], outputs: [{ type: "uint256" }] },
   { name: "getNonce", type: "function", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
   { name: "getXrplProviderWallets", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "string[]" }] },
   { name: "getExecutor", type: "function", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "address" }] },
@@ -41,7 +46,9 @@ const assetManagerAbi = [
   { name: "fAsset", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   // Direct-minting fees. The names come from the Dev Hub's operational-parameters
   // page and were confirmed to answer on Coston2 — an earlier round of guesses
-  // (directMintingFeeUBA, getInstructionFee, …) all reverted.
+  // (directMintingFeeUBA, getInstructionFee, …) all reverted *here*. Note that
+  // `getInstructionFee` does exist — on MasterAccountController, above. Same name,
+  // different contract, which is exactly why that guess looked plausible.
   { name: "getDirectMintingFeeBIPS", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { name: "getDirectMintingMinimumFeeUBA", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { name: "getDirectMintingExecutorFeeUBA", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
@@ -96,6 +103,10 @@ export interface SmartAccountInfo {
   fxrpAddress: `0x${string}`;
   masterAccountController: `0x${string}`;
   assetManager: `0x${string}`;
+  /** Payment amount in drops for a redemption instruction, read live. */
+  redeemInstructionFeeDrops: string;
+  /** Byte 1 of every payment reference. Hardcoded — no on-chain getter exists. */
+  walletId: number;
   /** Direct-minting fees, read live. Strings because they are UBA/bigint. */
   directMintingFeeBIPS: string;
   directMintingMinimumFeeUBA: string;
@@ -133,10 +144,11 @@ export async function getSmartAccountInfo(xrplAccount: string): Promise<SmartAcc
       c.readContract({ address: assetManager, abi: assetManagerAbi, functionName: "getDirectMintingExecutorFeeUBA" }),
     ]);
 
-  const [nonce, executor, coreVaultXrplAddress] = await Promise.all([
+  const [nonce, executor, coreVaultXrplAddress, redeemFee] = await Promise.all([
     c.readContract({ address: mac, abi: macAbi, functionName: "getNonce", args: [personalAccount] }),
     c.readContract({ address: mac, abi: macAbi, functionName: "getExecutor", args: [personalAccount] }),
     c.readContract({ address: coreVaultManager, abi: coreVaultAbi, functionName: "coreVaultAddress" }),
+    c.readContract({ address: mac, abi: macAbi, functionName: "getInstructionFee", args: [BigInt(OP_FXRP_REDEEM)] }),
   ]);
 
   if (providerWallets.length === 0) throw new Error("no operator XRPL wallet is registered on this network");
@@ -148,6 +160,8 @@ export async function getSmartAccountInfo(xrplAccount: string): Promise<SmartAcc
     executor: /^0x0{40}$/i.test(executor) ? null : executor,
     coreVaultXrplAddress,
     operatorXrplAddress: providerWallets[0],
+    redeemInstructionFeeDrops: redeemFee.toString(),
+    walletId: COSTON2_WALLET_ID,
     lotSizeUBA: lotSizeUBA.toString(),
     assetMintingDecimals: decimals,
     lotSizeFxrp: Number(lotSizeUBA) / 10 ** decimals,

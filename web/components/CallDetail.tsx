@@ -12,9 +12,8 @@
 // with no attestation says so; it does not borrow another call's badge or imply a
 // verification that never happened.
 //
-// Not ported from the reference version: its "Report deleted" control, which POSTs to
-// /api/report-deleted to re-check X for a deletion. Kassette has no such route, and
-// the button would be a control that does nothing.
+// Deliberately absent: a "Report deleted" control that re-checks the platform for a
+// deletion. There is no such route here, so the button would do nothing.
 
 import { useState } from "react";
 import { resolveTweetUrl } from "@/lib/xlink";
@@ -91,13 +90,11 @@ export function CallDetail({
     <>
       <div
         onClick={onClose}
-        className="fixed inset-0 z-40"
-        style={{ background: "color-mix(in oklch, var(--bg) 70%, transparent)" }}
+        className="sheet-scrim"
         aria-hidden="true"
       />
       <div
-        className="fixed top-0 right-0 h-full w-[480px] z-50 overflow-y-auto"
-        style={{ background: "var(--bg-2)", borderLeft: "1px solid var(--line-strong)" }}
+        className="sheet"
         aria-label={`Call ${call.id} detail`}
       >
         <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid var(--line)" }}>

@@ -1,10 +1,9 @@
-// Contradiction detection, ported from the reference implementation.
-// Pure and network-free: given a caller's calls and their self-disclosed wallet's
-// activity, find where the two disagree inside a window.
+// Contradiction detection. Pure and network-free: given a caller's calls and their
+// self-disclosed wallet's activity, find where the two disagree inside a window.
 //
-// The reference only ever flagged "said long, then sold". That leaves the mirror case
-// unhandled — a short call followed by a buy is the same broken promise — so both
-// are checked here. The asymmetry was a gap in the original, not a design choice.
+// ⚠️ Both directions are checked. Flagging only "said long, then sold" is the easy
+// half and leaves the mirror case unhandled — a short call followed by a buy is the
+// same broken promise.
 
 export interface CallRef {
   id: number;

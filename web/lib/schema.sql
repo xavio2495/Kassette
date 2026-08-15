@@ -1,8 +1,8 @@
--- Adapted from the reference schema. Same spine
--- (influencers → posts → calls → marks, plus wallet_events → contradictions);
--- the Flare-specific changes are called out below. Unlike the reference there are
--- no try/catch ALTER migrations — this schema starts clean, so every column
--- lives here.
+-- The spine is influencers → posts → calls → marks, plus wallet_events →
+-- contradictions; the Flare-specific choices are called out below.
+--
+-- ⚠️ No try/catch ALTER migrations anywhere. This schema starts clean, so every
+-- column lives here and the file is the whole truth about the shape.
 
 CREATE TABLE IF NOT EXISTS influencers (
   id INTEGER PRIMARY KEY,
@@ -31,7 +31,18 @@ CREATE TABLE IF NOT EXISTS posts (
   url TEXT NOT NULL,
   posted_at INTEGER NOT NULL,
   deleted_at INTEGER,
-  raw_json TEXT
+  raw_json TEXT,
+  -- 1 when this row was invented by scripts/seed-demo.ts rather than fetched.
+  --
+  -- ⚠️ Load-bearing for honesty, not a debug flag. A synthetic row carries a
+  -- plausible-looking identifier (an X status URL here, a tx hash in
+  -- wallet_events and executions), and the UI turns those into links to public
+  -- explorers. Without this column the view has to *guess* which identifiers are
+  -- real — lib/xlink.ts guessed from the URL shape and got it wrong, because the
+  -- seeded placeholder is all digits and so looked exactly like a real tweet id.
+  -- A demo that links a judge to a 404 has fabricated evidence, which is the one
+  -- thing this product cannot do. Anything fetched or signed leaves this 0.
+  synthetic INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS calls (
@@ -41,8 +52,8 @@ CREATE TABLE IF NOT EXISTS calls (
   -- anything below the confidence threshold — visible, never scored.
   template TEXT NOT NULL CHECK (template IN ('DIRECTIONAL', 'TARGET_CALL', 'GEM_SHILL', 'AMBIGUOUS')),
   asset_symbol TEXT,
-  -- FTSO feed id (bytes21 hex) rather than the reference ERC-20 address: FTSO
-  -- carries a fixed feed set, so a symbol without one is `unpriceable`.
+  -- FTSO feed id (bytes21 hex) rather than a token address: FTSO carries a fixed
+  -- feed set, so a symbol without one is `unpriceable`.
   feed_id TEXT,
   direction TEXT CHECK (direction IN ('long', 'short')),
   target_price REAL,
@@ -58,8 +69,8 @@ CREATE TABLE IF NOT EXISTS calls (
 -- Marks are retention, not cache. Each row keeps the anchor-feed body and its
 -- Merkle proof, so a price can prove itself on-chain long after the fact —
 -- measured good to at least a year (claude-docs/FINDINGS_AND_DECISIONS.md §3).
--- The reference smuggled its ETH benchmark into d1/d7 kinds disambiguated by
--- `source`; here the benchmark gets real kinds.
+-- The benchmark gets real mark kinds rather than being smuggled into d1/d7 kinds
+-- disambiguated by a `source` column.
 CREATE TABLE IF NOT EXISTS marks (
   id INTEGER PRIMARY KEY,
   call_id INTEGER NOT NULL REFERENCES calls(id),
@@ -76,7 +87,7 @@ CREATE TABLE IF NOT EXISTS marks (
   UNIQUE (call_id, kind)
 );
 
--- Replaces the reference 0G `artifacts` table. One row per call, recording every
+-- One row per call, recording every
 -- claim made about its provenance: the FDC attestation of the source, and the
 -- two chained TEE signatures (FCE-A over the post, FCE-B over the extraction).
 CREATE TABLE IF NOT EXISTS attestations (
@@ -106,6 +117,9 @@ CREATE TABLE IF NOT EXISTS wallet_events (
   side TEXT CHECK (side IN ('buy', 'sell')),
   usd_value REAL,
   occurred_at INTEGER NOT NULL,
+  -- See posts.synthetic. A seeded contradiction is a real detector result over
+  -- an invented transfer, so the case is genuine but its tx_hash is not.
+  synthetic INTEGER NOT NULL DEFAULT 0,
   UNIQUE (tx_hash, token_address, side)
 );
 
@@ -117,10 +131,10 @@ CREATE TABLE IF NOT EXISTS contradictions (
   UNIQUE (call_id, wallet_event_id)
 );
 
--- One row per confirmed copy/fade. Deliberately NOT the reference
--- users/allocations/copy_trades model: HANDOFF.md §2.3 forbids standing
--- delegation, so there is no allocation cap and no stored authority — every row
--- corresponds to one XRPL Payment the follower signed in the moment.
+-- One row per confirmed copy/fade. Deliberately NOT a users/allocations model:
+-- HANDOFF.md §2.3 forbids standing delegation, so there is no allocation cap and
+-- no stored authority — every row corresponds to one XRPL Payment the follower
+-- signed in the moment.
 CREATE TABLE IF NOT EXISTS executions (
   id INTEGER PRIMARY KEY,
   call_id INTEGER NOT NULL REFERENCES calls(id),
@@ -135,7 +149,11 @@ CREATE TABLE IF NOT EXISTS executions (
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'executed', 'failed')),
   reason TEXT,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  -- See posts.synthetic. Until Milestone 4 dispatches a Payment, every row in
+  -- this table is seeded, so this defaulting to 0 is what makes a real execution
+  -- visibly different from a populated demo state.
+  synthetic INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_posts_influencer ON posts (influencer_id, posted_at);

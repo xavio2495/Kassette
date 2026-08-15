@@ -11,11 +11,11 @@
 // innocence. "No contradictions found" and "we never looked" must not read the same,
 // which is the whole reason walletEventsChecked is carried through from the query.
 //
-// Two deliberate divergences from the reference component, both kept:
-//   - it renders "No linked wallet." for the undisclosed case, which reads as an
+// Two things this deliberately does NOT do:
+//   - render "No linked wallet." for the undisclosed case, which reads as an
 //     absence of data rather than an absence of a *check*;
-//   - it only knows the "said long, then sold" direction. lib/said-did.ts detects
-//     the mirror case too, so the label is driven by `kind`.
+//   - assume the "said long, then sold" direction. lib/said-did.ts detects the
+//     mirror case too, so the label is driven by `kind`.
 
 import { useState } from "react";
 import { resolveTweetUrl } from "@/lib/xlink";
@@ -46,13 +46,11 @@ function CaseCard({ c, onClose, handle }: { c: SaidVsDidCase; onClose: () => voi
     <>
       <div
         onClick={onClose}
-        className="fixed inset-0 z-40"
-        style={{ background: "color-mix(in oklch, var(--bg) 70%, transparent)" }}
+        className="sheet-scrim"
         aria-hidden="true"
       />
       <div
-        className="fixed top-0 right-0 h-full w-[480px] z-50 overflow-y-auto"
-        style={{ background: "var(--bg-2)", borderLeft: "1px solid var(--line-strong)" }}
+        className="sheet"
       >
         <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid var(--line)" }}>
           <h2 className="label">Said vs. Did</h2>
@@ -111,14 +109,24 @@ function CaseCard({ c, onClose, handle }: { c: SaidVsDidCase; onClose: () => voi
                 {fmtDate(c.event.occurred_at)}
               </span>
             </div>
-            <a
-              href={`${EXPLORER_TX}${c.event.tx_hash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="link mt-2 inline-block"
-            >
-              view tx on coston2 explorer →
-            </a>
+            {/* ⚠️ Only a real transfer gets an explorer link. The seeded
+                contradiction is a genuine lib/said-did result computed over an
+                invented transfer, so the finding stands but its tx_hash resolves
+                to nothing — linking it would offer a 404 as proof. */}
+            {c.event.synthetic ? (
+              <span className="label mt-2 inline-block" style={{ color: "var(--muted)", textTransform: "none" }}>
+                seeded demo transfer — no on-chain transaction to link
+              </span>
+            ) : (
+              <a
+                href={`${EXPLORER_TX}${c.event.tx_hash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="link mt-2 inline-block"
+              >
+                view tx on coston2 explorer →
+              </a>
+            )}
           </div>
         </div>
       </div>

@@ -10,12 +10,11 @@ import type { Receipt } from "@/lib/queries";
 
 // The terminal's call card.
 //
-// Three blocks of the reference version are 0G/X-specific and are NOT ported:
-//   - the 0-YAP toggle and its distilled-thesis block, which call /api/yap to run
-//     a second 0G inference over the post. Kassette has no such endpoint.
-//   - "report deleted", which POSTs to /api/report-deleted to re-check X.
-//   - the 0G proof panel and its "verify this inference now" button, which hit
-//     0G's router. Kassette's equivalent evidence is the two chained TEE
+// Three things a card like this often carries are deliberately absent:
+//   - a second inference over the post ("distil the thesis"). There is no such
+//     endpoint here, and adding one would put a model in another trust path.
+//   - a "report deleted" control that re-checks the platform on demand.
+//   - a provider-side proof panel. Kassette's evidence is the two chained TEE
 //     signatures the registry verified on Coston2, so the panel shows those.
 
 const EXPLORER_ADDRESS = "https://coston2-explorer.flare.network/address";
@@ -314,9 +313,9 @@ export function CallTweet({
             </button>
           </div>
           {/*
-            ⚠️ These open the ticket; they do not execute. The reference versions
-            fire a trade immediately against a delegated session signer, which is
-            exactly the standing authority HANDOFF.md §2.3 forbids. Every Kassette
+            ⚠️ These open the ticket; they do not execute. Firing a trade straight
+            from a card requires a delegated session signer, which is exactly the
+            standing authority HANDOFF.md §2.3 forbids. Every Kassette
             position change is one XRPL Payment the user signs in the moment, so
             there is a review step by construction.
           */}

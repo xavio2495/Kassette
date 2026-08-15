@@ -1,6 +1,5 @@
-// The headline number. The reference benchmarked against holding ETH; Kassette's
-// benchmark leg is XRP, written for every call so the two totals cover the same
-// legs (lib/marks.ts).
+// The headline number. The benchmark leg is XRP, written for every call so the two
+// totals cover the same legs (lib/marks.ts).
 export function VerdictBlock({ stats }: { stats: { totalPnl: number; benchmarkPnl: number; winRate: number; settled: number } }) {
   const neg = stats.totalPnl < 0;
   return (

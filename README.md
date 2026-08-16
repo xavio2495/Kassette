@@ -13,7 +13,8 @@
   <a href="https://kassette-gamma.vercel.app"><b>Live demo</b></a> ·
   <a href="https://kassette-gamma.vercel.app/pitch">the argument</a> ·
   <a href="https://kassette-gamma.vercel.app/terminal">the terminal</a> ·
-  <a href="https://kassette-gamma.vercel.app/leaderboard">the leaderboard</a>
+  <a href="https://kassette-gamma.vercel.app/leaderboard">the leaderboard</a> ·
+  <a href="SETUP.md"><b>run it locally</b></a>
 </p>
 
 <p align="center">
@@ -39,7 +40,7 @@
 - [Proof — measured, not asserted](#proof--measured-not-asserted)
 - [Deployed contracts](#deployed-contracts)
 - [Repository layout](#repository-layout)
-- [Running it](#running-it)
+- [Running it](#running-it) — full setup in [`SETUP.md`](SETUP.md)
 - [Honest scope](#honest-scope)
 - [Licence](#licence)
 
@@ -278,6 +279,9 @@ claude-docs/    Build log, error register, runbook, methodology
 ---
 
 ## Running it
+
+**Full instructions — contracts, frontend, both enclaves and the XRPL leg — are in
+[`SETUP.md`](SETUP.md).** The short version, which is all most people need:
 
 The web app needs **no keys**. It reads a local SQLite file seeded from live Coston2 FTSO data:
 

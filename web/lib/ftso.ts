@@ -75,10 +75,24 @@ export function feedPrice(body: AnchorFeed): number {
 // --- network --------------------------------------------------------------
 
 export async function fspStatus(): Promise<FspStatus> {
-  const res = await fetch(`${DA_BASE}/api/v0/fsp/status`, { headers: headers() });
-  if (!res.ok) throw new Error(`fsp/status ${res.status}`);
-  const json = (await res.json()) as { latest_ftso: { voting_round_id: number; start_timestamp: number } };
-  return { latestRound: json.latest_ftso.voting_round_id, latestStart: json.latest_ftso.start_timestamp };
+  // ⚠️ Retries on the same terms as anchorFeeds(). This was the one DA-Layer call that did
+  // not, so under rate limiting every *other* request rode out its 429 while this one threw
+  // immediately — and because priceAt() calls it first, a throttled run reported
+  // "price: fsp/status 429" and marked the call unpriceable without ever asking for a price.
+  // The endpoint is rate-limited exactly like the others; only the handling differed.
+  let lastStatus = 0;
+  for (let attempt = 0; attempt <= ANCHOR_RETRIES; attempt++) {
+    const res = await fetch(`${DA_BASE}/api/v0/fsp/status`, { headers: headers() });
+    if (res.ok) {
+      const json = (await res.json()) as { latest_ftso: { voting_round_id: number; start_timestamp: number } };
+      return { latestRound: json.latest_ftso.voting_round_id, latestStart: json.latest_ftso.start_timestamp };
+    }
+    lastStatus = res.status;
+    const transient = res.status === 429 || res.status >= 500;
+    if (!transient || attempt === ANCHOR_RETRIES) break;
+    await sleep(retryDelayMs(attempt, res.headers.get("retry-after")));
+  }
+  throw new Error(`fsp/status ${lastStatus}`);
 }
 
 // ⚠️ The public DA Layer is rate-limited without an API key, and the key is requested

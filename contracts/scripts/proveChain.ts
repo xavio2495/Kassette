@@ -380,6 +380,42 @@ async function main() {
  * `verified` is set only on this path, where the registry has already accepted both
  * signatures on-chain.
  */
+/**
+ * Write ONLY the two TEE columns, leaving any FDC proof on the row intact.
+ *
+ * ⚠️ Never `INSERT OR REPLACE` here. SQLite implements that as delete-then-insert, so it
+ * nulls every column the statement does not name — and this row's other half is
+ * `fdc_request_bytes` / `fdc_voting_round_id` / `fdc_proof_json` / `fdc_verified_tx`,
+ * written separately by attestPostViaFdc.ts. The two attestations are produced hours apart
+ * by different scripts, so the overlap is the normal case, not the edge case: running this
+ * over an FDC-attested call would have silently destroyed a Merkle proof that took a voting
+ * round to obtain, at the exact moment the call gained its second piece of evidence.
+ *
+ * `verified = 1` only here, where the registry has already accepted both signatures on-chain.
+ */
+function writeTeeHalf(
+    db: import("node:sqlite").DatabaseSync,
+    callId: number,
+    source: ActionResponse,
+    extraction: ActionResponse,
+    stored: { sourceTee: string; extractTee: string },
+) {
+    db.prepare(
+        `UPDATE attestations
+            SET source_tee_signature = ?, source_tee_signer = ?,
+                extraction_tee_signature = ?, extraction_tee_signer = ?, verified = 1
+          WHERE call_id = ?`,
+    ).run(source.signature, stored.sourceTee, extraction.signature, stored.extractTee, callId);
+
+    if ((db.prepare("SELECT changes() AS n").get() as { n: number }).n === 0) {
+        db.prepare(
+            `INSERT INTO attestations
+               (call_id, source_tee_signature, source_tee_signer, extraction_tee_signature, extraction_tee_signer, verified)
+             VALUES (?,?,?,?,?,1)`,
+        ).run(callId, source.signature, stored.sourceTee, extraction.signature, stored.extractTee);
+    }
+}
+
 async function recordInDemoDb(
     post: Post,
     stored: { contentHash: string; sourceTee: string; extractTee: string; assetSymbol: string; template: bigint; direction: bigint; targetPriceE8: bigint; confidenceBps: bigint },
@@ -427,11 +463,7 @@ async function recordInDemoDb(
                 console.log(`\n   post ${post.postId} (@${inf.handle}) is stored but has no call yet — classify it first.`);
                 return;
             }
-            db.prepare(
-                `INSERT OR REPLACE INTO attestations
-                   (call_id, source_tee_signature, source_tee_signer, extraction_tee_signature, extraction_tee_signer, verified)
-                 VALUES (?,?,?,?,?,1)`,
-            ).run(call.id, source.signature, stored.sourceTee, extraction.signature, stored.extractTee);
+            writeTeeHalf(db, call.id, source, extraction, stored);
             console.log(`\n   recorded against the EXISTING call ${call.id} — @${inf.handle}, post ${post.postId}`);
             console.log(`   signatures and signers are the enclaves' own; verified=1 because the registry accepted them (tx ${txHash.slice(0, 12)}…)`);
             return;
@@ -483,11 +515,7 @@ async function recordInDemoDb(
         );
         const callRow = db.prepare("SELECT id FROM calls WHERE post_id = ?").get(postRow.id) as { id: number };
 
-        db.prepare(
-            `INSERT OR REPLACE INTO attestations
-               (call_id, source_tee_signature, source_tee_signer, extraction_tee_signature, extraction_tee_signer, verified)
-             VALUES (?,?,?,?,?,1)`,
-        ).run(callRow.id, source.signature, stored.sourceTee, extraction.signature, stored.extractTee);
+        writeTeeHalf(db, callRow.id, source, extraction, stored);
 
         console.log(`\n   recorded in ${path.relative(process.cwd(), dbPath)} as call ${callRow.id}`);
         console.log(`   signatures and signers are the enclaves' own; verified=1 because the registry accepted them (tx ${txHash.slice(0, 12)}…)`);

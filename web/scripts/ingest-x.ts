@@ -444,6 +444,13 @@ async function classifyPending(db: DatabaseSync, ring: KeyRing, provider: Provid
          JOIN influencers i ON i.id = p.influencer_id
         WHERE p.synthetic = 0
           AND p.classified_at IS NULL
+          -- ⚠️ Belt as well as braces. classified_at is the intended marker, but it was
+          -- added after the first calls were already written, so a post could hold a call
+          -- and no stamp — and this loop then tried to INSERT a second call for it and died
+          -- on "UNIQUE constraint failed: calls.post_id", taking the rest of the batch with
+          -- it. A post that already has a call is classified by definition; say so in the
+          -- query rather than trusting one column to have been backfilled correctly.
+          AND NOT EXISTS (SELECT 1 FROM calls WHERE calls.post_id = p.id)
         ORDER BY p.posted_at DESC`
     )
     .all() as unknown as { id: number; content: string; posted_at: number; handle: string }[];

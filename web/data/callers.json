@@ -13,7 +13,26 @@
     "     UI links to the actual post and a reader can check the extraction against it.",
     "",
     "To add someone: append a handle. To remove them from the demo, delete the entry and",
-    "re-run the ingester with --reset."
+    "re-run the ingester with --reset.",
+    "",
+    "⚠️ Two cohorts here, and the difference is the whole point.",
+    "",
+    "The first 19 were chosen by hand as well-known XRP commentators. Measured: 55 of their",
+    "posts classified produced ZERO scored calls — they post news, sentiment and promos, and",
+    "the nine that came closest sat at 0.80 against the 0.85 bar. Those nine were a greeting",
+    "(\"GM XRP MILLIONAIRES\"), a Starbucks platitude, and third-party news. The bar was NOT",
+    "lowered to convert them; that would have put invented P&L on real named people.",
+    "",
+    "The rest came from `npm run find-callers`, which searches for the SHAPE of a call and",
+    "keeps only authors whose priceable asset is the SUBJECT of the post.",
+    "",
+    "⚠️ Rejected from that sweep, and why it matters: @SchmidtTi0, @Leoncrypto_1,",
+    "@Globalfcap, @Bruno_negrao and @Cryptobeall___ all rank highly on hit count, but they",
+    "post calls on unpriceable alts ($INX, $HOT, $VELVET, $ARPA, $SAPIEN) while spamming",
+    "\"$BTC $ETH $XRP $SOL\" as hashtag decoration. The cashtag is not the subject, so scoring",
+    "them would attribute an $INX trade to BTC — a fabricated call, which is exactly what this",
+    "list exists to prevent. Also rejected: \"$X Target price for Tomorrow👀 <link>\" accounts,",
+    "which state no target anywhere in the text."
   ],
   "handles": [
     "RippleXrpie",
@@ -34,6 +53,12 @@
     "BCBacker",
     "360_trader",
     "thebearablebull",
-    "CryptoXRPSignal"
+    "CryptoXRPSignal",
+
+    "OGemHODL",
+    "GregoryWalshMKT",
+    "ChartAI_Live",
+    "_ElbertAInstein",
+    "LAIRcronos"
   ]
 }

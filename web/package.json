@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "e2e": "tsx scripts/e2e.ts",
     "snapshot": "tsx scripts/snapshot-db.ts",
-    "ingest": "tsx scripts/ingest-x.ts"
+    "ingest": "tsx scripts/ingest-x.ts",
+    "find-callers": "tsx scripts/find-callers.ts"
   },
   "dependencies": {
     "next": "16.3.0",

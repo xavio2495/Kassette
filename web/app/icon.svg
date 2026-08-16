@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Kassette">
+  <title>Kassette</title>
+  <!--
+    The tab icon. Deliberately NOT public/kassette-mark.svg scaled down.
+
+    The full mark carries four corner screws, toothed hub rims and a hairline body stroke.
+    At 16x16 — which is the size that actually ships in a browser tab — those land on a
+    third of a pixel each and grey into mush, so the cassette reads as a smudged rectangle.
+    This is the same silhouette drawn for the size it is used at: screws dropped, hubs
+    reduced to solid rings, strokes thickened to a full pixel at 16px.
+
+    ⚠️ Theme-aware, because a favicon has no page to inherit from. The brand ink is
+    #13161c, which is invisible against a dark browser chrome, so the fill flips on
+    prefers-color-scheme. Browsers that ignore the media query get the light-mode ink,
+    which is the safer default on the white tab bars most users have.
+  -->
+  <style>
+    .ink { fill: #13161c; }
+    .hub { fill: #5231f0; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #f4f3f1; }
+    }
+  </style>
+
+  <!-- body: rounded shell, drawn as an even-odd ring so it stays hollow -->
+  <path class="ink" fill-rule="evenodd"
+        d="M4 6.5h24a2.5 2.5 0 0 1 2.5 2.5v14a2.5 2.5 0 0 1-2.5 2.5H4A2.5 2.5 0 0 1 1.5 23V9A2.5 2.5 0 0 1 4 6.5Zm0 2.5h24v14H4V9Z"/>
+
+  <!-- the tape window, and the two hubs inside it -->
+  <path class="ink" d="M8 12h16v8H8a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2Z" opacity="0.14"/>
+  <circle class="hub" cx="11" cy="16" r="3"/>
+  <circle class="hub" cx="21" cy="16" r="3"/>
+  <circle cx="11" cy="16" r="1.15" fill="#ffffff"/>
+  <circle cx="21" cy="16" r="1.15" fill="#ffffff"/>
+</svg>

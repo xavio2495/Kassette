@@ -14,7 +14,8 @@
     "snapshot": "tsx scripts/snapshot-db.ts",
     "ingest": "tsx scripts/ingest-x.ts",
     "find-callers": "tsx scripts/find-callers.ts",
-    "figures": "tsx scripts/render-figures.tsx"
+    "figures": "tsx scripts/render-figures.tsx",
+    "icons": "tsx scripts/render-icons.tsx"
   },
   "dependencies": {
     "next": "16.3.0",

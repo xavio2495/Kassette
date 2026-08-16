@@ -160,7 +160,10 @@ const SLIDES: Slide[] = [
         <div className="pitch-stats">
           <Stat n="4" label="registries deployed" sub="mark · attestation · extraction · execution" />
           <Stat n="2" label="enclaves chained" sub="both directions proven on-chain" />
-          <Stat n="233" label="automated checks" sub="70 contract · 110 web · 53 browser" />
+          {/* ⚠️ Re-count before presenting: `npx hardhat test`, `npx vitest run`, `npm run e2e`.
+              A stale number on the slide that argues for verifiability is the worst possible
+              place to be approximately right. Last counted 2026-08-16. */}
+          <Stat n="247" label="automated checks" sub="70 contract · 118 web · 59 browser" />
         </div>
         <div className="pitch-addrs">
           <Addr name="execution registry" address="0xA547dD80a28Dc59A6b555A5E4aCc06B9856Aa6e6" />

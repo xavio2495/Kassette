@@ -25,7 +25,9 @@
 //          lives only in Kassette's database. `callBound` carries that distinction through
 //          to the UI, which says it in words rather than letting the two look alike.
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { getAddress, isInstalled, submitTransaction } from "@gemwallet/api";
+import type { SubmittableTransaction } from "xrpl";
 import { accountServerSnapshot, accountSnapshot, subscribeAccount } from "@/lib/account";
 import type { DossierCall } from "@/lib/dossier";
 import { ErrorBox, Loading, useApi } from "./ui";
@@ -111,6 +113,20 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
   const [recorded, setRecorded] = useState<{ status: string; reason: string | null } | null>(null);
   const [recordError, setRecordError] = useState<string | null>(null);
 
+  // Whether the GemWallet browser extension is present. Checked once on mount so the
+  // panel can offer a real "sign it" button instead of only the copy-paste fallback —
+  // `null` while unknown avoids flashing the fallback before the check resolves.
+  const [gemInstalled, setGemInstalled] = useState<boolean | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [signing, setSigning] = useState(false);
+  const [signError, setSignError] = useState<string | null>(null);
+
+  useEffect(() => {
+    isInstalled()
+      .then((r) => setGemInstalled(r.result.isInstalled))
+      .catch(() => setGemInstalled(false));
+  }, []);
+
   const fxrp = Number(amount);
   const validAmount = Number.isFinite(fxrp) && fxrp > 0;
 
@@ -120,8 +136,30 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
       : null;
   const plan = useApi<ExecutionPlan>(planUrl, [xrplAccount, side, fxrp, call.id]);
 
-  async function record() {
+  async function connectGemWallet() {
+    setConnecting(true);
+    setSignError(null);
+    try {
+      const res = await getAddress();
+      const address = res.result?.address;
+      if (!address) {
+        setSignError("GemWallet did not return an address.");
+        return;
+      }
+      setXrplInput(address);
+      setXrplAccount(address);
+      setReviewing(false);
+      setRecorded(null);
+    } catch (e) {
+      setSignError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  async function record(hashOverride?: string) {
     if (!plan.data) return;
+    const hash = (hashOverride ?? txHash).trim();
     setRecording(true);
     setRecordError(null);
     try {
@@ -132,7 +170,7 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
           call: call.id,
           mode: side,
           xrplAccount,
-          xrplTxHash: txHash.trim(),
+          xrplTxHash: hash,
           fxrpAmount: String(Number(plan.data.breakdown.netMintUBA) / 1e6),
           // Lets the server tell "not yet" from "this can never execute" — see ERRORS.md §L.
           nonce: plan.data.nonce,
@@ -145,6 +183,31 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
       setRecordError(e instanceof Error ? e.message : String(e));
     } finally {
       setRecording(false);
+    }
+  }
+
+  // The one place an actual wallet gets invoked: GemWallet signs AND submits the exact
+  // Payment `/api/execution-plan` built, in one popup. Kassette still never sees a key —
+  // it only receives back the hash the extension already broadcast.
+  async function signWithGemWallet() {
+    if (!plan.data) return;
+    setSigning(true);
+    setSignError(null);
+    try {
+      const res = await submitTransaction({
+        transaction: plan.data.payment as unknown as SubmittableTransaction,
+      });
+      const hash = res.result?.hash;
+      if (res.type === "reject" || !hash) {
+        setSignError("Signing was rejected in GemWallet.");
+        return;
+      }
+      setTxHash(hash);
+      await record(hash);
+    } catch (e) {
+      setSignError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSigning(false);
     }
   }
 
@@ -216,6 +279,18 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
               load
             </button>
           </div>
+
+          {gemInstalled && (
+            <button
+              type="button"
+              className="act"
+              style={{ marginTop: 8, width: "100%" }}
+              disabled={connecting}
+              onClick={connectGemWallet}
+            >
+              {connecting ? "connecting…" : "use GemWallet address"}
+            </button>
+          )}
 
           {xrplAccount == null && (
             <p className="label" style={{ marginTop: 10, textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}>
@@ -317,6 +392,28 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
                     )}
                   </pre>
 
+                  {/* The real invocation: GemWallet gets the exact Payment above, verbatim —
+                      not a re-derived copy — so what the extension shows the user to approve
+                      is provably what this route built. */}
+                  {gemInstalled && (
+                    <button
+                      type="button"
+                      className="act"
+                      style={{ marginTop: 12, width: "100%" }}
+                      disabled={signing || recording}
+                      onClick={signWithGemWallet}
+                    >
+                      {signing ? "waiting on GemWallet…" : "sign with GemWallet"}
+                    </button>
+                  )}
+                  {gemInstalled === false && (
+                    <p className="label" style={{ marginTop: 12, textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}>
+                      GemWallet extension not detected — install it, or sign this payment in any
+                      XRPL wallet and paste the resulting hash below.
+                    </p>
+                  )}
+                  {signError && <div style={{ marginTop: 8 }}><ErrorBox error={signError} /></div>}
+
                   <div style={{ marginTop: 12 }}>
                     <div className="label" style={{ marginBottom: 6 }}>{"// amount, in drops (1 drop = 1 UBA at 6 decimals)"}</div>
                     <Row label="net minted">{plan.data.breakdown.netMintUBA}</Row>
@@ -346,7 +443,9 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
                       there is nothing to record, and a hash alone proves nothing. */}
                   <div style={{ borderTop: "1px solid var(--line)", marginTop: 12, paddingTop: 12 }}>
                     <div className="label" style={{ marginBottom: 8 }}>
-                      once you have sent it, paste the transaction hash
+                      {gemInstalled
+                        ? "signed elsewhere instead? paste the transaction hash"
+                        : "once you have sent it, paste the transaction hash"}
                     </div>
                     <div className="term-search">
                       <span className="label">TX</span>
@@ -360,7 +459,7 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
                         className="act"
                         style={{ minWidth: 0, padding: "4px 10px" }}
                         disabled={!XRPL_TX_RE.test(txHash.trim()) || recording}
-                        onClick={record}
+                        onClick={() => record()}
                       >
                         {recording ? "checking…" : "record"}
                       </button>

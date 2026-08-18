@@ -62,6 +62,20 @@ const SLIDES: Slide[] = [
     body: "A crypto caller's public posts become a verifiable track record: attested at the source, priced against real oracle history, checked against their own wallet — and tradeable from an XRPL wallet without bridging.",
   },
   {
+    nav: "Flare",
+    eyebrow: "// what each primitive is load-bearing for",
+    title: "Four primitives, none decorative.",
+    render: () => (
+      <>
+        <StackDiagram />
+        <p className="pitch-note">
+          The test each one has to pass is not &ldquo;did we use it&rdquo; but &ldquo;what breaks
+          without it&rdquo;. A primitive that can be removed with no consequence was decoration.
+        </p>
+      </>
+    ),
+  },
+  {
     nav: "Problem",
     eyebrow: "// what callers count on you forgetting",
     title: "The losing calls quietly disappear.",
@@ -135,20 +149,6 @@ const SLIDES: Slide[] = [
           <CustodyDiagram />
         </div>
       </div>
-    ),
-  },
-  {
-    nav: "Flare",
-    eyebrow: "// what each primitive is load-bearing for",
-    title: "Four primitives, none decorative.",
-    render: () => (
-      <>
-        <StackDiagram />
-        <p className="pitch-note">
-          The test each one has to pass is not &ldquo;did we use it&rdquo; but &ldquo;what breaks
-          without it&rdquo;. A primitive that can be removed with no consequence was decoration.
-        </p>
-      </>
     ),
   },
   {

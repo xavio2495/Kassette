@@ -29,7 +29,7 @@ const POLL_MS = 10_000;
 
 export function TerminalApp() {
   const router = useRouter();
-  const [filter, setFilter] = useState<Filter>("signals");
+  const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
 
   // A tick that changes every POLL_MS, used as a `useApi` dep so the feed
@@ -50,7 +50,7 @@ export function TerminalApp() {
     let all = calls ?? [];
     if (filter === "signals") all = all.filter((c) => c.template !== "AMBIGUOUS");
     else if (filter === "conviction") all = all.filter((c) => c.confidence >= 0.7);
-    const q = query.trim().toLowerCase();
+    const q = query.trim().toLowerCase().replace(/^[@$]/, "");
     if (q) {
       all = all.filter(
         (c) =>

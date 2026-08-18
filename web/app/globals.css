@@ -1124,6 +1124,49 @@ a { color: inherit; text-decoration: none; }
 .resolve-fill { height: 100%; border-radius: 999px; background: var(--g-45); transition: width 0.9s var(--ease-out-expo); }
 .resolve-fill-done { background: var(--gain); }
 .resolve-eta { font-family: var(--font-mono), monospace; font-size: 11.5px; font-weight: 500; color: var(--ink); white-space: nowrap; }
+.rdot-error { background: var(--loss); }
+
+/* ---- pending-trade banner ----
+   Fixed under the menu bar, above every window, so a copy/fade in flight stays visible
+   regardless of which app is open. Reuses .resolve-track/.resolve-fill from above for the
+   progress bar itself, so it reads as the same primitive rather than a second design. */
+.trade-banner-stack {
+  position: fixed;
+  top: var(--menubar-h);
+  left: 0; right: 0;
+  z-index: 1100;
+  display: flex; flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 0;
+  pointer-events: none;
+}
+.trade-banner {
+  pointer-events: auto;
+  width: min(560px, 100%);
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 0.5px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  animation: matIn 0.2s var(--ease-ui) both;
+}
+.trade-banner-executed { border-color: color-mix(in srgb, var(--gain) 40%, transparent); }
+.trade-banner-error { border-color: color-mix(in srgb, var(--loss) 40%, transparent); }
+.trade-banner-row { display: flex; align-items: center; gap: 12px; }
+.trade-banner-row .rlabel { color: var(--ink); font-weight: 600; }
+.trade-banner-link, .trade-banner-close {
+  background: none; border: 0; cursor: pointer;
+  font-family: inherit; font-size: 11px; font-weight: 500;
+  color: var(--muted); white-space: nowrap; padding: 2px 4px;
+}
+.trade-banner-link { color: var(--accent); }
+.trade-banner-link:hover, .trade-banner-close:hover { color: var(--ink); }
+.trade-banner-reason {
+  margin-top: 6px;
+  font-size: 11.5px; color: var(--loss);
+  text-transform: none; letter-spacing: 0.02em; line-height: 1.5;
+}
 
 /* ---- proof drawer ---- */
 .proof-bar {

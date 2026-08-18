@@ -154,6 +154,11 @@ CREATE TABLE IF NOT EXISTS executions (
   direction TEXT NOT NULL CHECK (direction IN ('long', 'short')),
   fxrp_amount TEXT,
   flare_tx_hash TEXT,
+  -- PackedUserOperation.nonce the plan was built with, when known (copy only — a fade
+  -- carries no nonce). Lets a confirmation distinguish "not yet" from "this Payment can
+  -- no longer execute" the same way whether it's checked from a live ticket or the
+  -- background watcher (lib/executionWatcher.ts) — see confirmFromChain's `stale` check.
+  nonce TEXT,
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'executed', 'failed')),
   reason TEXT,

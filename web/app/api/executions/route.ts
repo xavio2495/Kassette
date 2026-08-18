@@ -1,12 +1,10 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
-
 import { connection } from "next/server";
 import { listExecutions } from "../../../lib/queries";
 import { getDb } from "../../../lib/db";
 import { getSmartAccountInfo } from "../../../lib/flare";
 import { chainCallId } from "../../../lib/callid";
 import { confirmFadeFromChain, confirmFromChain, markExecuted, recordPending } from "../../../lib/executions";
+import { executionRegistryAddress } from "../../../lib/deployments";
 import { handle, fail } from "../../../lib/api";
 
 // Confirmed copy/fade executions, optionally for one XRPL account.
@@ -93,6 +91,7 @@ export async function POST(request: Request) {
           xrplTxHash: txHash.toUpperCase(),
           direction: row.direction,
           fxrpAmount: body.fxrpAmount ?? "0",
+          nonce: body.nonce != null ? String(body.nonce) : null,
         },
         db
       );
@@ -117,7 +116,7 @@ export async function POST(request: Request) {
         notBefore: created ?? Math.floor(Date.now() / 1000),
       });
       if (fade.confirmed && fade.fxrpAmountUBA) {
-        markExecuted(txHash.toUpperCase(), fade.fxrpAmountUBA, info.assetMintingDecimals, db);
+        markExecuted(txHash.toUpperCase(), fade.fxrpAmountUBA, info.assetMintingDecimals, db, fade.flareTxHash);
       }
       return {
         xrplTxHash: txHash.toUpperCase(),
@@ -127,9 +126,18 @@ export async function POST(request: Request) {
         chainCallId: null,
         redemptionRequestId: fade.requestId,
         fxrpAmountUBA: fade.fxrpAmountUBA,
+        flareTxHash: fade.flareTxHash,
         reason: fade.reason,
       };
     }
+
+    // Same lookup the fade path does above: the row's own creation time, used to bind the
+    // tx-hash search to THIS Payment rather than the newest matching log.
+    const createdAt = (
+      db.prepare("SELECT created_at FROM executions WHERE xrpl_tx_hash = ?").get(txHash.toUpperCase()) as
+        | { created_at: number }
+        | undefined
+    )?.created_at;
 
     const result = await confirmFromChain({
       registry: executionRegistryAddress(),
@@ -139,10 +147,12 @@ export async function POST(request: Request) {
       // that can no longer execute is reported as such instead of polling forever.
       builtWithNonce: body.nonce != null ? BigInt(body.nonce) : undefined,
       currentNonce: BigInt(info.nonce),
+      // Binds the tx-hash lookup to THIS Payment rather than the newest matching log.
+      notBefore: createdAt,
     });
 
     if (result.confirmed && result.fxrpAmountUBA) {
-      markExecuted(txHash.toUpperCase(), result.fxrpAmountUBA, info.assetMintingDecimals, db);
+      markExecuted(txHash.toUpperCase(), result.fxrpAmountUBA, info.assetMintingDecimals, db, result.flareTxHash);
     }
 
     return {
@@ -152,18 +162,8 @@ export async function POST(request: Request) {
       callBound: true,
       chainCallId: chainCallId(row.content_hash),
       fxrpAmountUBA: result.fxrpAmountUBA,
+      flareTxHash: result.flareTxHash,
       reason: result.reason,
     };
   });
-}
-
-function executionRegistryAddress(): `0x${string}` {
-  const file =
-    process.env.DEPLOYMENTS_FILE ??
-    path.join(process.cwd(), "..", "contracts", "deployments", "kassette-coston2.json");
-  if (!fs.existsSync(file)) throw new Error(`no deployment record at ${file}`);
-  const deployments = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, string>;
-  const address = deployments.KassetteExecutionRegistry;
-  if (!address) throw new Error("KassetteExecutionRegistry is not deployed — run scripts/deployExecutionRegistry.ts");
-  return address as `0x${string}`;
 }

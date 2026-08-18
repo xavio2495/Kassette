@@ -7,6 +7,7 @@ import { Desktop } from "../components/desktop/Desktop";
 import { Desk } from "../components/desktop/Desk";
 import { GlassFilter } from "../components/desktop/GlassFilter";
 import { Wall } from "../components/desktop/Wall";
+import { PendingTradeBanner } from "../components/desktop/PendingTradeBanner";
 
 // Inter stands in for SF on machines without it — the CSS stack in globals.css
 // asks for -apple-system first, so a Mac renders in the real thing. JetBrains
@@ -46,6 +47,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
 
         <GlassFilter />
         <MenuBar />
+        <PendingTradeBanner />
         <Desk />
         {/* Routes render nothing but a launcher; the windows they ask for are
             drawn by <Desktop/>, which outlives any single route. */}

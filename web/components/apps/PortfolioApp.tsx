@@ -78,6 +78,25 @@ const td: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+/**
+ * A failure `reason` is a full diagnostic sentence, not a label — the one on execution 7 runs
+ * to ~380 characters naming both chains, both memo layouts and both destinations. Rendered
+ * unbounded inside a `white-space: nowrap` cell it stretched the table far past the viewport,
+ * pushing the XRPL Payment / Flare tx / When columns off screen behind a horizontal scrollbar.
+ *
+ * Truncated rather than shortened at the source: the reason is evidence, and the row is the
+ * only place it is recorded. The full text stays available via `title` on hover and is never
+ * altered in the database.
+ */
+const reasonCell: React.CSSProperties = {
+  display: "inline-block",
+  maxWidth: "22ch",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  verticalAlign: "bottom",
+};
+
 function StatCell({
   label,
   children,
@@ -376,7 +395,11 @@ export function PortfolioApp() {
                         <td style={td}>
                           <StatusPill status={e.status} />
                           {e.reason && (
-                            <span className="label" style={{ color: "var(--muted)", marginLeft: 6 }}>
+                            <span
+                              className="label"
+                              style={{ ...reasonCell, color: "var(--muted)", marginLeft: 6 }}
+                              title={e.reason}
+                            >
                               {e.reason}
                             </span>
                           )}

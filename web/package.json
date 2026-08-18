@@ -15,7 +15,9 @@
     "ingest": "tsx scripts/ingest-x.ts",
     "find-callers": "tsx scripts/find-callers.ts",
     "figures": "tsx scripts/render-figures.tsx",
-    "icons": "tsx scripts/render-icons.tsx"
+    "icons": "tsx scripts/render-icons.tsx",
+    "backfill-flare-tx": "tsx scripts/backfill-flare-tx.ts",
+    "recheck-deletions": "tsx scripts/recheck-deletions.ts"
   },
   "dependencies": {
     "@gemwallet/api": "^3.8.0",

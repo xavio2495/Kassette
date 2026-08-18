@@ -29,6 +29,13 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { getAddress, isInstalled, submitTransaction } from "@gemwallet/api";
 import type { SubmittableTransaction } from "xrpl";
 import { accountServerSnapshot, accountSnapshot, subscribeAccount } from "@/lib/account";
+import {
+  pendingTradesServerSnapshot,
+  pendingTradesSnapshot,
+  subscribePendingTrades,
+  track,
+} from "@/lib/pendingTrades";
+import { prefillFor, prefillsServerSnapshot, prefillsSnapshot, subscribePrefills } from "@/lib/ticketPrefills";
 import type { DossierCall } from "@/lib/dossier";
 import { ErrorBox, Loading, useApi } from "./ui";
 import { PoweredBy } from "./PoweredBy";
@@ -98,8 +105,13 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 export function FadeTicket({ call, handle }: { call: DossierCall; handle: string }) {
-  const [side, setSide] = useState<Side>("copy");
-  const [amount, setAmount] = useState("10");
+  // Seeded from Allocations' saved prefill for this caller (or the saved default size)
+  // if one exists — a convenience, never authority; both fields stay fully editable and
+  // confirming the plan is what actually arms anything.
+  const prefills = useSyncExternalStore(subscribePrefills, prefillsSnapshot, prefillsServerSnapshot);
+  const seeded = prefillFor(handle, prefills);
+  const [side, setSide] = useState<Side>(seeded.mode ?? "copy");
+  const [amount, setAmount] = useState(seeded.amount);
   // The signed-in account seeds both fields, so a signed-in user never retypes
   // their address — but it is still only a default: the value stays editable,
   // and confirming it is what arms the plan.
@@ -109,9 +121,12 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
   const [reviewing, setReviewing] = useState(false);
 
   const [txHash, setTxHash] = useState("");
-  const [recording, setRecording] = useState(false);
-  const [recorded, setRecorded] = useState<{ status: string; reason: string | null } | null>(null);
-  const [recordError, setRecordError] = useState<string | null>(null);
+  const [trackError, setTrackError] = useState<string | null>(null);
+
+  // Once a hash is being tracked, this ticket just reads its live status from the same
+  // global store the top banner reads — there is no second poller here.
+  const trades = useSyncExternalStore(subscribePendingTrades, pendingTradesSnapshot, pendingTradesServerSnapshot);
+  const tracked = trades.find((t) => t.id === txHash) ?? null;
 
   // Whether the GemWallet browser extension is present. Checked once on mount so the
   // panel can offer a real "sign it" button instead of only the copy-paste fallback —
@@ -149,7 +164,6 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
       setXrplInput(address);
       setXrplAccount(address);
       setReviewing(false);
-      setRecorded(null);
     } catch (e) {
       setSignError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -157,33 +171,32 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
     }
   }
 
-  async function record(hashOverride?: string) {
-    if (!plan.data) return;
-    const hash = (hashOverride ?? txHash).trim();
-    setRecording(true);
-    setRecordError(null);
-    try {
-      const res = await fetch("/api/executions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          call: call.id,
-          mode: side,
-          xrplAccount,
-          xrplTxHash: hash,
-          fxrpAmount: String(Number(plan.data.breakdown.netMintUBA) / 1e6),
-          // Lets the server tell "not yet" from "this can never execute" — see ERRORS.md §L.
-          nonce: plan.data.nonce,
-        }),
-      });
-      const body = await res.json();
-      if (!body.ok) setRecordError(body.error);
-      else setRecorded({ status: body.data.status, reason: body.data.reason });
-    } catch (e) {
-      setRecordError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setRecording(false);
-    }
+  // Hands a broadcast Payment's hash off to the global tracker (`lib/pendingTrades.ts`),
+  // which owns the actual polling from here — this component only reads its status back
+  // via `tracked`, above, so navigating away from this ticket does not stop the check.
+  function trackHash(hash: string) {
+    if (!plan.data || !xrplAccount) return;
+    setTrackError(null);
+    track({
+      id: hash,
+      callId: call.id,
+      handle,
+      // ⚠️ `plan.data.side`, NOT the `side` state — they can disagree, and when they do the
+      // row is unconfirmable. Signing is async (the GemWallet popup), so flipping the
+      // copy/fade toggle while it is open leaves `side` pointing at a plan that was never
+      // signed, while the hash coming back belongs to the previous one. The row then records
+      // the wrong mode and gets confirmed against the wrong evidence — a fade looked up as
+      // `ExecutionRecorded` instead of `RedemptionRequested` can never confirm, and polls
+      // `pending` forever. Execution 7 in the demo database is exactly this: its Payment is
+      // byte-for-byte the fade plan this endpoint builds, stored in a `copy` row.
+      // The plan is the thing that was actually signed, so the plan decides the mode.
+      side: plan.data.side,
+      assetSymbol: plan.data.call.assetSymbol,
+      fxrpAmount: Number(plan.data.breakdown.netMintUBA) / 1e6,
+      xrplAccount,
+      xrplTxHash: hash,
+      nonce: plan.data.nonce,
+    });
   }
 
   // The one place an actual wallet gets invoked: GemWallet signs AND submits the exact
@@ -193,6 +206,9 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
     if (!plan.data) return;
     setSigning(true);
     setSignError(null);
+    // Shown alongside the wallet popup, not as a gate in front of it — the payment the
+    // extension asks you to approve is exactly what's printed here.
+    setReviewing(true);
     try {
       const res = await submitTransaction({
         transaction: plan.data.payment as unknown as SubmittableTransaction,
@@ -203,13 +219,14 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
         return;
       }
       setTxHash(hash);
-      await record(hash);
+      trackHash(hash);
     } catch (e) {
       setSignError(e instanceof Error ? e.message : String(e));
     } finally {
       setSigning(false);
     }
   }
+
 
   return (
     <div
@@ -235,7 +252,6 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
             onChange={(s) => {
               setSide(s);
               setReviewing(false);
-              setRecorded(null);
             }}
           />
 
@@ -247,7 +263,6 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
               onChange={(e) => {
                 setAmount(e.target.value);
                 setReviewing(false);
-                setRecorded(null);
               }}
               aria-label="amount in FXRP"
             />
@@ -273,7 +288,6 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
               onClick={() => {
                 setXrplAccount(xrplInput.trim());
                 setReviewing(false);
-                setRecorded(null);
               }}
             >
               load
@@ -351,13 +365,37 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
                 </p>
               )}
 
+              {/* The direct action: this invokes GemWallet immediately, no intermediate
+                  "review" step in front of it. `gemInstalled === null` is a brief detection
+                  window on mount — the button stays disabled rather than falling back to
+                  the copy-paste flow and silently skipping the real invocation. */}
+              {gemInstalled !== false && (
+                <button
+                  type="button"
+                  className="act btn-primary"
+                  style={{ marginTop: 14, width: "100%" }}
+                  disabled={signing || gemInstalled === null}
+                  onClick={signWithGemWallet}
+                >
+                  {signing
+                    ? "waiting on GemWallet…"
+                    : gemInstalled === null
+                    ? "checking for GemWallet…"
+                    : `sign & send ${Number(plan.data.breakdown.netMintUBA) / 1e6} FXRP with GemWallet`}
+                </button>
+              )}
+
               <button
                 type="button"
                 className="act"
-                style={{ marginTop: 14, width: "100%" }}
+                style={{ marginTop: gemInstalled !== false ? 8 : 14, width: "100%" }}
                 onClick={() => setReviewing((r) => !r)}
               >
-                {reviewing ? "hide payment" : "review payment"}
+                {reviewing
+                  ? "hide payment details"
+                  : gemInstalled === false
+                  ? "review payment"
+                  : "view payment details"}
               </button>
 
               {reviewing && (
@@ -373,7 +411,7 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
                   }}
                 >
                   <div className="label" style={{ marginBottom: 8 }}>
-                    sign this in your XRPL wallet
+                    {gemInstalled === false ? "sign this in your XRPL wallet" : "the exact payment GemWallet is asked to sign"}
                   </div>
                   <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", margin: 0, color: "var(--muted)" }}>
                     {JSON.stringify(
@@ -392,20 +430,9 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
                     )}
                   </pre>
 
-                  {/* The real invocation: GemWallet gets the exact Payment above, verbatim —
-                      not a re-derived copy — so what the extension shows the user to approve
-                      is provably what this route built. */}
-                  {gemInstalled && (
-                    <button
-                      type="button"
-                      className="act"
-                      style={{ marginTop: 12, width: "100%" }}
-                      disabled={signing || recording}
-                      onClick={signWithGemWallet}
-                    >
-                      {signing ? "waiting on GemWallet…" : "sign with GemWallet"}
-                    </button>
-                  )}
+                  {/* GemWallet gets exactly this object, verbatim — not a re-derived copy —
+                      so what the extension asks the user to approve is provably what this
+                      route built. */}
                   {gemInstalled === false && (
                     <p className="label" style={{ marginTop: 12, textTransform: "none", letterSpacing: "0.02em", lineHeight: 1.6 }}>
                       GemWallet extension not detected — install it, or sign this payment in any
@@ -439,8 +466,11 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
                     call — there is no standing authority to grant or revoke.
                   </p>
 
-                  {/* Recording is a separate, later step on purpose: until the mint lands
-                      there is nothing to record, and a hash alone proves nothing. */}
+                  {/* Tracking is a separate, later step on purpose: until the mint lands
+                      there is nothing to track, and a hash alone proves nothing. Once
+                      tracked, this hands off to the global banner at the top of the
+                      screen — a mint takes ~2-3 minutes, and that keeps checking whether
+                      or not this ticket stays open. */}
                   <div style={{ borderTop: "1px solid var(--line)", marginTop: 12, paddingTop: 12 }}>
                     <div className="label" style={{ marginBottom: 8 }}>
                       {gemInstalled
@@ -458,16 +488,16 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
                       <button
                         className="act"
                         style={{ minWidth: 0, padding: "4px 10px" }}
-                        disabled={!XRPL_TX_RE.test(txHash.trim()) || recording}
-                        onClick={() => record()}
+                        disabled={!XRPL_TX_RE.test(txHash.trim()) || tracked != null}
+                        onClick={() => trackHash(txHash.trim())}
                       >
-                        {recording ? "checking…" : "record"}
+                        {tracked ? "tracking…" : "track"}
                       </button>
                     </div>
 
-                    {recordError && <div style={{ marginTop: 8 }}><ErrorBox error={recordError} /></div>}
+                    {trackError && <div style={{ marginTop: 8 }}><ErrorBox error={trackError} /></div>}
 
-                    {recorded && (
+                    {tracked && (
                       <p
                         className="label"
                         style={{
@@ -475,15 +505,23 @@ export function FadeTicket({ call, handle }: { call: DossierCall; handle: string
                           textTransform: "none",
                           letterSpacing: "0.02em",
                           lineHeight: 1.6,
-                          color: recorded.status === "executed" ? "var(--gain)" : "var(--muted)",
+                          color:
+                            tracked.status === "executed"
+                              ? "var(--gain)"
+                              : tracked.status === "error"
+                              ? "var(--loss)"
+                              : "var(--muted)",
                         }}
                       >
-                        {recorded.status === "executed" ? (
+                        {tracked.status === "executed" ? (
                           <>✓ Confirmed on-chain and recorded against this call. It is in your portfolio.</>
+                        ) : tracked.status === "error" ? (
+                          <>Could not confirm: {tracked.reason}</>
                         ) : (
                           <>
-                            Recorded as pending. {recorded.reason} A mint takes roughly two minutes —
-                            press record again to re-check.
+                            Broadcast — a mint takes roughly two to three minutes. See the
+                            progress bar at the top of the screen; it keeps checking the chain
+                            automatically, no need to press anything again.
                           </>
                         )}
                       </p>

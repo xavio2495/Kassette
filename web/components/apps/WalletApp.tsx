@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { getAddress, isInstalled } from "@gemwallet/api";
 import {
   XRPL_ADDRESS_RE,
   accountServerSnapshot,
@@ -56,6 +57,34 @@ export function WalletApp() {
   const [input, setInput] = useState("");
   const [touched, setTouched] = useState(false);
 
+  // `null` while unknown avoids offering a "connect" button for an extension that turns
+  // out not to be there — the manual address field is the only true fallback either way.
+  const [gemInstalled, setGemInstalled] = useState<boolean | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+
+  useEffect(() => {
+    isInstalled()
+      .then((r) => setGemInstalled(r.result.isInstalled))
+      .catch(() => setGemInstalled(false));
+  }, []);
+
+  async function connectGemWallet() {
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const res = await getAddress();
+      const address = res.result?.address;
+      if (!address || !signIn(address)) {
+        setConnectError("GemWallet did not return a usable XRPL address.");
+      }
+    } catch (e) {
+      setConnectError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConnecting(false);
+    }
+  }
+
   const valid = XRPL_ADDRESS_RE.test(input.trim());
   const info = useApi<SmartAccountInfo>(
     account ? `/api/smart-account?xrpl=${encodeURIComponent(account)}` : null,
@@ -74,9 +103,22 @@ export function WalletApp() {
         yourself, one call at a time. Signing in tells the ticket which account to build for.
       </p>
 
+      {!account && gemInstalled && (
+        <div style={{ marginTop: 20, maxWidth: 460 }}>
+          <button type="button" className="btn btn-primary" style={{ width: "100%" }} disabled={connecting} onClick={connectGemWallet}>
+            {connecting ? "connecting…" : "connect GemWallet"}
+          </button>
+          {connectError && <div style={{ marginTop: 8 }}><ErrorBox error={connectError} /></div>}
+          <div className="label" style={{ marginTop: 16, marginBottom: 4, color: "var(--faint)" }}>
+            or enter your address manually
+          </div>
+        </div>
+      )}
+
       {!account && (
         <form
           className="wallet-form"
+          style={gemInstalled ? { marginTop: 8 } : undefined}
           onSubmit={(e) => {
             e.preventDefault();
             setTouched(true);

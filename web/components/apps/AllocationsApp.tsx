@@ -5,6 +5,16 @@ import Link from "next/link";
 import { CreatorSearch, type CreatorOption } from "@/components/CreatorSearch";
 import { ErrorBox, Loading, useApi } from "@/components/ui";
 import type { ExecutionsResponse, InfluencerSummary } from "@/lib/queries";
+import {
+  persistPrefills,
+  prefillsServerSnapshot,
+  prefillsSnapshot,
+  readDefaultSize,
+  saveDefaultSize,
+  subscribePrefills,
+  type Mode,
+  type Prefill,
+} from "@/lib/ticketPrefills";
 
 // ⚠️ Read this before changing anything on this page.
 //
@@ -23,17 +33,6 @@ import type { ExecutionsResponse, InfluencerSummary } from "@/lib/queries";
 //   - the "allocated" column is replaced by what was *actually* deployed, read
 //     back from the executions ledger. A page about where your money is should
 //     show where your money went, not where you once said it could go.
-
-type Mode = "copy" | "fade";
-
-interface Prefill {
-  handle: string;
-  amount: number;
-  mode: Mode;
-}
-
-const STORAGE_KEY = "kassette.ticketPrefills";
-const DEFAULT_KEY = "kassette.defaultTicketSize";
 
 // The system's own field and button, as style objects because these controls
 // are composed inline. Values track `.field` / `.btn` in globals.css — if one
@@ -61,70 +60,14 @@ const btn: React.CSSProperties = {
 };
 const ghost: React.CSSProperties = { ...btn, background: "var(--g-0)", color: "var(--ink)", borderColor: "var(--g-28)" };
 
-// localStorage is an external store, so it is subscribed to rather than copied
-// into state inside an effect (React 19's set-state-in-effect rule). The cached
-// snapshot matters: returning a freshly-parsed array on every call would hand
-// React a new identity each render and loop forever.
-let cachedRaw: string | null = null;
-let cachedPrefills: Prefill[] = [];
-const storeListeners = new Set<() => void>();
-
-function notifyStore() {
-  for (const l of storeListeners) l();
-}
-
-function subscribeStore(onChange: () => void) {
-  storeListeners.add(onChange);
-  // `storage` fires for other tabs; local writes call notifyStore directly.
-  window.addEventListener("storage", onChange);
-  return () => {
-    storeListeners.delete(onChange);
-    window.removeEventListener("storage", onChange);
-  };
-}
-
-function prefillsSnapshot(): Prefill[] {
-  let raw: string | null = null;
-  try {
-    raw = localStorage.getItem(STORAGE_KEY);
-  } catch {
-    return cachedPrefills;
-  }
-  if (raw !== cachedRaw) {
-    cachedRaw = raw;
-    cachedPrefills = readPrefills();
-  }
-  return cachedPrefills;
-}
-
-const EMPTY: Prefill[] = [];
-const prefillsServerSnapshot = () => EMPTY;
-
-function readPrefills(): Prefill[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    // Local storage is user-editable, so validate rather than trust the shape.
-    return parsed.flatMap((p): Prefill[] => {
-      if (typeof p !== "object" || p === null) return [];
-      const { handle, amount, mode } = p as Record<string, unknown>;
-      if (typeof handle !== "string" || typeof amount !== "number" || !Number.isFinite(amount)) return [];
-      if (mode !== "copy" && mode !== "fade") return [];
-      return [{ handle, amount, mode }];
-    });
-  } catch {
-    return [];
-  }
-}
-
 export function AllocationsApp() {
   const creatorsQ = useApi<InfluencerSummary[]>("/api/influencers");
   const execQ = useApi<ExecutionsResponse>("/api/executions");
 
-  const prefills = useSyncExternalStore(subscribeStore, prefillsSnapshot, prefillsServerSnapshot);
-  const [defaultSize, setDefaultSize] = useState("10");
+  const prefills = useSyncExternalStore(subscribePrefills, prefillsSnapshot, prefillsServerSnapshot);
+  // Seeded from what was actually saved, not a hardcoded "10" — a page that shows a
+  // save confirmation but forgets it on reload is worse than not offering the field.
+  const [defaultSize, setDefaultSize] = useState(() => readDefaultSize() ?? "10");
   const [savedNote, setSavedNote] = useState<string | null>(null);
 
   // draft row
@@ -133,13 +76,8 @@ export function AllocationsApp() {
   const [draftMode, setDraftMode] = useState<Mode>("copy");
 
   const persist = useCallback((next: Prefill[]) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      notifyStore();
-      setSavedNote("saved in this browser");
-    } catch {
-      setSavedNote("could not save — browser storage is blocked");
-    }
+    if (persistPrefills(next)) setSavedNote("saved in this browser");
+    else setSavedNote("could not save — browser storage is blocked");
     setTimeout(() => setSavedNote(null), 2200);
   }, []);
 
@@ -208,12 +146,8 @@ export function AllocationsApp() {
           <button
             style={btn}
             onClick={() => {
-              try {
-                localStorage.setItem(DEFAULT_KEY, defaultSize);
-                setSavedNote("saved in this browser");
-              } catch {
-                setSavedNote("could not save — browser storage is blocked");
-              }
+              if (saveDefaultSize(defaultSize)) setSavedNote("saved in this browser");
+              else setSavedNote("could not save — browser storage is blocked");
               setTimeout(() => setSavedNote(null), 2200);
             }}
           >

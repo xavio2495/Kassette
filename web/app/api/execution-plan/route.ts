@@ -1,12 +1,10 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
-
 import { connection } from "next/server";
 import { getDb } from "../../../lib/db";
 import { getSmartAccountInfo } from "../../../lib/flare";
 import { chainCallId } from "../../../lib/callid";
 import { buildCopyPlan, ExecutionMode } from "../../../lib/userop";
 import { buildFadePlan, lotsFor } from "../../../lib/smart-accounts";
+import { executionRegistryAddress } from "../../../lib/deployments";
 import { handle, fail } from "../../../lib/api";
 
 // The exact XRPL Payment a follower must sign to copy or fade one call.
@@ -161,24 +159,4 @@ export async function GET(request: Request) {
       executionRegistry: executionRegistryAddress(),
     };
   });
-}
-
-/**
- * Read from the deployment record rather than an env var or a literal, so a redeploy of
- * the registry cannot leave this route silently pointing at the old one.
- *
- * ⚠️ Read with `fs` at request time, not `require`d. The file lives outside `web/`, which
- * the bundler refuses to resolve — and reading it per request means a redeploy is picked
- * up without restarting the dev server, which is the behaviour you want when the address
- * can change mid-session.
- */
-function executionRegistryAddress(): `0x${string}` {
-  const file =
-    process.env.DEPLOYMENTS_FILE ??
-    path.join(process.cwd(), "..", "contracts", "deployments", "kassette-coston2.json");
-  if (!fs.existsSync(file)) throw new Error(`no deployment record at ${file}`);
-  const deployments = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, string>;
-  const address = deployments.KassetteExecutionRegistry;
-  if (!address) throw new Error("KassetteExecutionRegistry is not deployed — run scripts/deployExecutionRegistry.ts");
-  return address as `0x${string}`;
 }

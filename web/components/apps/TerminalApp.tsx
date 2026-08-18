@@ -8,7 +8,7 @@ import { CreatorSearch } from "@/components/CreatorSearch";
 import { ErrorBox, Loading, useApi } from "@/components/ui";
 import type { FeedCall, InfluencerSummary } from "@/lib/queries";
 
-type Filter = "all" | "signals" | "conviction";
+type Filter = "all" | "signals" | "conviction" | "attested";
 
 function MiniAvatar({ handle }: { handle: string }) {
   const [ok, setOk] = useState(true);
@@ -50,6 +50,7 @@ export function TerminalApp() {
     let all = calls ?? [];
     if (filter === "signals") all = all.filter((c) => c.template !== "AMBIGUOUS");
     else if (filter === "conviction") all = all.filter((c) => c.confidence >= 0.7);
+    else if (filter === "attested") all = all.filter((c) => c.attested);
     const q = query.trim().toLowerCase().replace(/^[@$]/, "");
     if (q) {
       all = all.filter(
@@ -142,6 +143,7 @@ export function TerminalApp() {
                   ["all", "All calls"],
                   ["signals", "Signals only"],
                   ["conviction", "High conviction"],
+                  ["attested", "Attested only"],
                 ] as [Filter, string][]
               ).map(([key, lbl]) => (
                 <button key={key} className={`filter-pill ${filter === key ? "filter-on" : ""}`} onClick={() => setFilter(key)}>
@@ -177,7 +179,14 @@ export function TerminalApp() {
         <div className="term-center">
           <div className="term-feed-head" style={{ flexWrap: "wrap", rowGap: 12 }}>
             <span className="tnum" style={{ alignSelf: "center" }}>
-              {shown.length} {filter === "all" ? "calls" : filter === "signals" ? "signals" : "high-conviction calls"}
+              {shown.length}{" "}
+              {filter === "all"
+                ? "calls"
+                : filter === "signals"
+                ? "signals"
+                : filter === "conviction"
+                ? "high-conviction calls"
+                : "attested calls"}
             </span>
             <span className="label" style={{ color: "var(--muted)", alignSelf: "center" }}>
               every trade is signed per call

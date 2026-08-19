@@ -11,18 +11,20 @@
     "seed": "tsx scripts/seed-demo.ts",
     "typecheck": "tsc --noEmit",
     "e2e": "tsx scripts/e2e.ts",
-    "snapshot": "tsx scripts/snapshot-db.ts",
     "ingest": "tsx scripts/ingest-x.ts",
     "find-callers": "tsx scripts/find-callers.ts",
     "figures": "tsx scripts/render-figures.tsx",
     "icons": "tsx scripts/render-icons.tsx",
     "backfill-flare-tx": "tsx scripts/backfill-flare-tx.ts",
     "recheck-deletions": "tsx scripts/recheck-deletions.ts",
-    "sync-deployments": "cp ../contracts/deployments/kassette-coston2.json data/deployments.json && echo \"synced web/data/deployments.json\""
+    "sync-deployments": "cp ../contracts/deployments/kassette-coston2.json data/deployments.json && echo \"synced web/data/deployments.json\"",
+    "migrate:pg": "tsx scripts/migrate-to-postgres.ts"
   },
   "dependencies": {
     "@gemwallet/api": "^3.8.0",
+    "@types/pg": "^8.23.1",
     "next": "16.3.0",
+    "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "recharts": "^3.10.1",

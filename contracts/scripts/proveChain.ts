@@ -30,6 +30,7 @@
 // instruction routes to a machine whose key is gone and the poll times out with a 404.
 // See claude-docs/RUNBOOK.md §2.
 import { ethers, network } from "hardhat";
+import { openDb, type Db } from "./pgdb";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -393,26 +394,31 @@ async function main() {
  *
  * `verified = 1` only here, where the registry has already accepted both signatures on-chain.
  */
-function writeTeeHalf(
-    db: import("node:sqlite").DatabaseSync,
+async function writeTeeHalf(
+    db: Db,
     callId: number,
     source: ActionResponse,
     extraction: ActionResponse,
     stored: { sourceTee: string; extractTee: string },
 ) {
-    db.prepare(
+    const changed = await db.run(
         `UPDATE attestations
             SET source_tee_signature = ?, source_tee_signer = ?,
                 extraction_tee_signature = ?, extraction_tee_signer = ?, verified = 1
           WHERE call_id = ?`,
-    ).run(source.signature, stored.sourceTee, extraction.signature, stored.extractTee, callId);
+        [source.signature, stored.sourceTee, extraction.signature, stored.extractTee, callId],
+    );
 
-    if ((db.prepare("SELECT changes() AS n").get() as { n: number }).n === 0) {
-        db.prepare(
+    // ⚠️ `changed` comes back from the UPDATE itself. SQLite's `SELECT changes()` was a
+    // second round trip against connection-local state, which on a pooled connection can
+    // land on a different backend and report someone else's count.
+    if (changed === 0) {
+        await db.run(
             `INSERT INTO attestations
                (call_id, source_tee_signature, source_tee_signer, extraction_tee_signature, extraction_tee_signer, verified)
              VALUES (?,?,?,?,?,1)`,
-        ).run(callId, source.signature, stored.sourceTee, extraction.signature, stored.extractTee);
+            [callId, source.signature, stored.sourceTee, extraction.signature, stored.extractTee],
+        );
     }
 }
 
@@ -423,18 +429,10 @@ async function recordInDemoDb(
     extraction: ActionResponse,
     txHash: string,
 ) {
-    const dbPath = process.env.DB_PATH ?? path.join(__dirname, "..", "..", "web", "kassette.db");
-    if (!fs.existsSync(dbPath)) {
-        console.log(`\n   SEED_DB=1 but no database at ${dbPath} — run \`npm run seed -- --reset\` in web/ first.`);
-        return;
-    }
-
-    // node:sqlite, the same driver web/lib/db.ts uses — no second dependency.
-    const { DatabaseSync } = await import("node:sqlite");
-    const db = new DatabaseSync(dbPath);
+    // Postgres (Neon) — the same database the app reads. There is no local file to check for
+    // any more; a bad connection string fails loudly on the first query instead.
+    const db = openDb();
     try {
-        db.exec("PRAGMA foreign_keys = ON");
-
         // ⚠️ Prefer the post the ingester already stored. `scripts/ingest-x.ts` keys posts on
         // the BARE platform id ("2088462295852834992"); this script used to write only the
         // prefixed form ("x-2088462295852834992") under a synthesised `author_<id>` handle.
@@ -442,55 +440,65 @@ async function recordInDemoDb(
         // and a SECOND call, and the attestation attached to the phantom — so @BankXRP's real
         // call still rendered "no attestation" while an `author_…` row nobody recognises
         // rendered the receipt. Reuse the real rows when they exist; mint only when they do not.
-        const existing = db
-            .prepare("SELECT id, influencer_id FROM posts WHERE platform_post_id IN (?, ?)")
-            .get(post.postId, `${post.platform}-${post.postId}`) as { id: number; influencer_id: number } | undefined;
+        const existing = await db.get<{ id: number; influencer_id: number }>(
+            "SELECT id, influencer_id FROM posts WHERE platform_post_id IN (?, ?)",
+            [post.postId, `${post.platform}-${post.postId}`],
+        );
 
         if (existing) {
-            const inf = db.prepare("SELECT handle FROM influencers WHERE id = ?").get(existing.influencer_id) as { handle: string };
+            const inf = (await db.get<{ handle: string }>("SELECT handle FROM influencers WHERE id = ?", [existing.influencer_id]))!;
             // The enclave hashed the text it fetched; record that hash against the stored post
             // so the two agree, and let a mismatch in the text itself surface loudly rather
             // than be silently overwritten.
-            const row = db.prepare("SELECT content FROM posts WHERE id = ?").get(existing.id) as { content: string };
+            const row = (await db.get<{ content: string }>("SELECT content FROM posts WHERE id = ?", [existing.id]))!;
             if (row.content !== post.text) {
                 console.log(`\n   ⚠️  stored text differs from what the enclave fetched for ${post.postId}.`);
                 console.log(`      The attestation is over the ENCLAVE's text; the stored row is left untouched.`);
             }
-            db.prepare("UPDATE posts SET content_hash = ? WHERE id = ?").run(stored.contentHash, existing.id);
+            await db.run("UPDATE posts SET content_hash = ? WHERE id = ?", [stored.contentHash, existing.id]);
 
-            const call = db.prepare("SELECT id FROM calls WHERE post_id = ?").get(existing.id) as { id: number } | undefined;
+            const call = await db.get<{ id: number }>("SELECT id FROM calls WHERE post_id = ?", [existing.id]);
             if (!call) {
                 console.log(`\n   post ${post.postId} (@${inf.handle}) is stored but has no call yet — classify it first.`);
                 return;
             }
-            writeTeeHalf(db, call.id, source, extraction, stored);
+            await writeTeeHalf(db, call.id, source, extraction, stored);
             console.log(`\n   recorded against the EXISTING call ${call.id} — @${inf.handle}, post ${post.postId}`);
             console.log(`   signatures and signers are the enclaves' own; verified=1 because the registry accepted them (tx ${txHash.slice(0, 12)}…)`);
             return;
         }
 
         const handle = `author_${post.authorId}`;
-        db.prepare("INSERT OR IGNORE INTO influencers (handle, platform, display_name) VALUES (?,?,?)").run(
+        // `INSERT OR IGNORE` in SQLite; the Postgres spelling names the conflicting column.
+        await db.run("INSERT INTO influencers (handle, platform, display_name) VALUES (?,?,?) ON CONFLICT (handle) DO NOTHING", [
             handle,
             post.platform,
             `${post.platform}/${post.authorId} (real, attested)`,
-        );
-        const influencerId = (db.prepare("SELECT id FROM influencers WHERE handle = ?").get(handle) as { id: number }).id;
+        ]);
+        const influencerId = (await db.get<{ id: number }>("SELECT id FROM influencers WHERE handle = ?", [handle]))!.id;
 
         // synthetic = 0: this row is a real post the enclave fetched, so its identifiers
-        // resolve and the UI may link them (lib/schema.sql).
-        db.prepare(
-            `INSERT OR REPLACE INTO posts (influencer_id, platform_post_id, content, content_hash, url, posted_at, synthetic)
-             VALUES (?,?,?,?,?,?,0)`,
-        ).run(
-            influencerId,
-            `${post.platform}-${post.postId}`,
-            post.text,
-            stored.contentHash,
-            `https://x.com/i/status/${post.postId}`,
-            post.postedAt,
+        // resolve and the UI may link them (web/lib/schema.pg.sql).
+        //
+        // ⚠️ `ON CONFLICT … DO UPDATE` naming every column, NOT the old `INSERT OR REPLACE`.
+        // SQLite implemented that as delete-then-insert, which nulled every column the
+        // statement did not name; an upsert only touches what it lists.
+        await db.run(
+            `INSERT INTO posts (influencer_id, platform_post_id, content, content_hash, url, posted_at, synthetic)
+             VALUES (?,?,?,?,?,?,0)
+             ON CONFLICT (platform_post_id) DO UPDATE
+               SET content = EXCLUDED.content, content_hash = EXCLUDED.content_hash,
+                   url = EXCLUDED.url, posted_at = EXCLUDED.posted_at`,
+            [
+                influencerId,
+                `${post.platform}-${post.postId}`,
+                post.text,
+                stored.contentHash,
+                `https://x.com/i/status/${post.postId}`,
+                post.postedAt,
+            ],
         );
-        const postRow = db.prepare("SELECT id FROM posts WHERE platform_post_id = ?").get(`${post.platform}-${post.postId}`) as { id: number };
+        const postRow = (await db.get<{ id: number }>("SELECT id FROM posts WHERE platform_post_id = ?", [`${post.platform}-${post.postId}`]))!;
 
         // The extraction is the enclave's, decoded from the signed payload — not re-run here.
         const templates = ["DIRECTIONAL", "TARGET_CALL", "GEM_SHILL", "AMBIGUOUS"] as const;
@@ -498,29 +506,35 @@ async function recordInDemoDb(
         const symbol = ethers.toUtf8String(stored.assetSymbol).replace(/\0+$/, "") || null;
         const scored = template !== "AMBIGUOUS" && symbol != null;
 
-        db.prepare(
-            `INSERT OR REPLACE INTO calls (post_id, template, asset_symbol, feed_id, direction, target_price, expiry_at, confidence, extraction_json, status)
-             VALUES (?,?,?,?,?,?,?,?,?,?)`,
-        ).run(
-            postRow.id,
-            template,
-            symbol,
-            null,
-            scored ? (Number(stored.direction) === 1 ? "long" : "short") : null,
-            Number(stored.targetPriceE8) > 0 ? Number(stored.targetPriceE8) / 1e8 : null,
-            post.postedAt + 30 * 86400,
-            Number(stored.confidenceBps) / 10000,
-            JSON.stringify({ template, asset_symbol: symbol, confidence: Number(stored.confidenceBps) / 10000, source: "FCE-B, TEE-signed" }),
-            scored ? "open" : "ambiguous",
+        await db.run(
+            `INSERT INTO calls (post_id, template, asset_symbol, feed_id, direction, target_price, expiry_at, confidence, extraction_json, status)
+             VALUES (?,?,?,?,?,?,?,?,?,?)
+             ON CONFLICT (post_id) DO UPDATE
+               SET template = EXCLUDED.template, asset_symbol = EXCLUDED.asset_symbol,
+                   direction = EXCLUDED.direction, target_price = EXCLUDED.target_price,
+                   expiry_at = EXCLUDED.expiry_at, confidence = EXCLUDED.confidence,
+                   extraction_json = EXCLUDED.extraction_json, status = EXCLUDED.status`,
+            [
+                postRow.id,
+                template,
+                symbol,
+                null,
+                scored ? (Number(stored.direction) === 1 ? "long" : "short") : null,
+                Number(stored.targetPriceE8) > 0 ? Number(stored.targetPriceE8) / 1e8 : null,
+                post.postedAt + 30 * 86400,
+                Number(stored.confidenceBps) / 10000,
+                JSON.stringify({ template, asset_symbol: symbol, confidence: Number(stored.confidenceBps) / 10000, source: "FCE-B, TEE-signed" }),
+                scored ? "open" : "ambiguous",
+            ],
         );
-        const callRow = db.prepare("SELECT id FROM calls WHERE post_id = ?").get(postRow.id) as { id: number };
+        const callRow = (await db.get<{ id: number }>("SELECT id FROM calls WHERE post_id = ?", [postRow.id]))!;
 
-        writeTeeHalf(db, callRow.id, source, extraction, stored);
+        await writeTeeHalf(db, callRow.id, source, extraction, stored);
 
-        console.log(`\n   recorded in ${path.relative(process.cwd(), dbPath)} as call ${callRow.id}`);
+        console.log(`\n   recorded in Neon Postgres as call ${callRow.id}`);
         console.log(`   signatures and signers are the enclaves' own; verified=1 because the registry accepted them (tx ${txHash.slice(0, 12)}…)`);
     } finally {
-        db.close();
+        await db.close();
     }
 }
 

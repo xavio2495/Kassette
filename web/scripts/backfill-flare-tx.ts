@@ -45,8 +45,8 @@ async function main() {
     console.log("   requests and will likely rate-limit. Set COSTON2_RPC_URL first.\n");
   }
 
-  const db = getDb();
-  const rows = db
+  const db = await getDb();
+  const rows = (await db
     .prepare(
       `SELECT e.id, e.xrpl_tx_hash, e.call_id, e.created_at, e.xrpl_account, p.content_hash
          FROM executions e
@@ -56,7 +56,7 @@ async function main() {
           AND e.flare_tx_hash IS NULL AND e.mode = 'copy'
         ORDER BY e.id`
     )
-    .all() as unknown as Row[];
+    .all()) as unknown as Row[];
 
   if (rows.length === 0) {
     console.log("nothing to backfill — every real copy already carries a Flare tx hash.");
@@ -87,7 +87,7 @@ async function main() {
         filled++;
         continue;
       }
-      db.prepare("UPDATE executions SET flare_tx_hash = ? WHERE id = ? AND flare_tx_hash IS NULL").run(
+      await db.prepare("UPDATE executions SET flare_tx_hash = ? WHERE id = ? AND flare_tx_hash IS NULL").run(
         result.flareTxHash,
         row.id
       );

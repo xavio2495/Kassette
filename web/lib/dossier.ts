@@ -7,8 +7,7 @@
 //
 // The benchmark reads from real `bench_entry` / `bench_latest` mark kinds rather
 // than being smuggled into d1/d7 kinds disambiguated by `source`.
-import type { DatabaseSync } from "node:sqlite";
-import { getDb } from "./db";
+import { getDb, type Db } from "./db";
 import { NOTIONAL, callPnl, dossierStats } from "./score";
 import { computeInsights, type CreatorInsights } from "./insights";
 
@@ -86,17 +85,24 @@ interface MarkRow {
   price_usd: number;
 }
 
-export function buildDossier(handle: string, database?: DatabaseSync): Dossier | null {
-  const db = database ?? getDb();
+export async function buildDossier(handle: string, database?: Db): Promise<Dossier | null> {
+  const db = database ?? (await getDb());
 
-  const influencer = db
+  const influencer = (await db
     .prepare("SELECT id, handle, display_name, wallet_address, disclosure_source_url FROM influencers WHERE handle = ?")
-    .get(handle) as
+    .get(handle)) as
     | { id: number; handle: string; display_name: string | null; wallet_address: string | null; disclosure_source_url: string | null }
     | undefined;
   if (!influencer) return null;
 
-  const callRows = db
+  // ⚠️ These three are issued TOGETHER, not one after another. They share only
+  // `influencer.id`, so nothing forces an order — and on SQLite the distinction did not
+  // matter because each read was in-process. Against Neon each is a network round trip, and
+  // a dossier is built once per caller on the feed and leaderboard, so serialising them was
+  // multiplying the slowest part of every page by three.
+  const [callRows, markRows, saidVsDid] = await Promise.all([
+    (async () =>
+      (await db
     .prepare(
       `SELECT c.id AS call_id, p.content, p.url, p.posted_at, p.deleted_at,
               c.template, c.asset_symbol, c.direction, c.target_price, c.confidence,
@@ -108,9 +114,9 @@ export function buildDossier(handle: string, database?: DatabaseSync): Dossier |
         WHERE p.influencer_id = ?
         ORDER BY p.posted_at ASC`
     )
-    .all(influencer.id) as unknown as CallRow[];
-
-  const markRows = db
+    .all(influencer.id)) as unknown as CallRow[])(),
+    (async () =>
+      (await db
     .prepare(
       `SELECT m.call_id, m.kind, m.price_usd
          FROM marks m
@@ -118,7 +124,9 @@ export function buildDossier(handle: string, database?: DatabaseSync): Dossier |
          JOIN posts p ON p.id = c.post_id
         WHERE p.influencer_id = ?`
     )
-    .all(influencer.id) as unknown as MarkRow[];
+    .all(influencer.id)) as unknown as MarkRow[])(),
+    buildSaidVsDid(db, influencer.id, influencer.wallet_address, influencer.disclosure_source_url),
+  ]);
 
   const byCall = new Map<number, Record<string, number>>();
   for (const m of markRows) {
@@ -186,12 +194,6 @@ export function buildDossier(handle: string, database?: DatabaseSync): Dossier |
     };
   });
 
-  const saidVsDid = buildSaidVsDid(
-    db,
-    influencer.id,
-    influencer.wallet_address,
-    influencer.disclosure_source_url
-  );
 
   return {
     handle: influencer.handle,
@@ -221,17 +223,17 @@ export function buildDossier(handle: string, database?: DatabaseSync): Dossier |
   };
 }
 
-function buildSaidVsDid(
-  db: DatabaseSync,
+async function buildSaidVsDid(
+  db: Db,
   influencerId: number,
   wallet: string | null,
   disclosureSourceUrl: string | null
-): SaidVsDid {
-  const { n: walletEventsChecked } = db
+): Promise<SaidVsDid> {
+  const { n: walletEventsChecked } = (await db
     .prepare("SELECT COUNT(*) AS n FROM wallet_events WHERE influencer_id = ?")
-    .get(influencerId) as unknown as { n: number };
+    .get(influencerId)) as unknown as { n: number };
 
-  const rows = db
+  const rows = (await db
     .prepare(
       `SELECT c.id AS call_id, p.content, p.url, p.posted_at, c.asset_symbol,
               we.tx_hash, we.usd_value, we.occurred_at, we.side, we.synthetic, ct.gap_hours
@@ -242,7 +244,7 @@ function buildSaidVsDid(
         WHERE p.influencer_id = ?
         ORDER BY p.posted_at ASC`
     )
-    .all(influencerId) as unknown as {
+    .all(influencerId)) as unknown as {
       call_id: number; content: string; url: string; posted_at: number; asset_symbol: string | null;
       tx_hash: string; usd_value: number | null; occurred_at: number; side: string; synthetic: number; gap_hours: number;
     }[];

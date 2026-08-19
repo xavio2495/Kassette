@@ -9,7 +9,8 @@ export async function GET(_request: Request, ctx: { params: Promise<{ callId: st
   const id = Number(callId);
   if (!Number.isInteger(id) || id < 1) return fail("callId must be a positive integer", 400);
 
-  const receipt = getReceipt(id);
+  // ⚠️ Awaited: unawaited this is a Promise, always truthy, and the 404 below never fires.
+  const receipt = await getReceipt(id);
   if (!receipt) return fail(`no call with id ${id}`, 404);
   return handle(() => receipt);
 }

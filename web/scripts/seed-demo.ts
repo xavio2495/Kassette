@@ -25,7 +25,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { getDb, closeDb } from "../lib/db";
+import { getDb, closeDb, type Db } from "../lib/db";
 import { markCall } from "../lib/marks";
 import { buildDossier } from "../lib/dossier";
 import { fspStatus } from "../lib/ftso";
@@ -92,13 +92,13 @@ const CALLERS: Caller[] = [
   },
 ];
 
-function seedCaller(db: ReturnType<typeof getDb>, c: Caller, startPostId: number, now: number): number {
-  db.prepare(
+async function seedCaller(db: Db, c: Caller, startPostId: number, now: number): Promise<number> {
+  await db.prepare(
     "INSERT INTO influencers (handle, display_name, wallet_address, disclosure_source_url) VALUES (?,?,?,?)"
   ).run(c.handle, c.displayName, c.wallet ?? null, c.disclosureUrl ?? null);
 
   const influencerId = Number(
-    (db.prepare("SELECT id FROM influencers WHERE handle = ?").get(c.handle) as { id: number }).id
+    ((await db.prepare("SELECT id FROM influencers WHERE handle = ?").get(c.handle)) as { id: number }).id
   );
 
   let postId = startPostId;
@@ -116,7 +116,7 @@ function seedCaller(db: ReturnType<typeof getDb>, c: Caller, startPostId: number
       throw new Error(`seeded post URL looks like a real tweet: ${url}`);
     }
 
-    db.prepare(
+    await db.prepare(
       "INSERT INTO posts (influencer_id, platform_post_id, content, content_hash, url, posted_at, deleted_at, synthetic) VALUES (?,?,?,?,?,?,?,1)"
     ).run(
       influencerId,
@@ -132,7 +132,7 @@ function seedCaller(db: ReturnType<typeof getDb>, c: Caller, startPostId: number
     // An AMBIGUOUS call is not a scored call, so it carries no direction — that is
     // what "shown but never scored" means in the data, not just in the UI.
     const scored = template !== "AMBIGUOUS";
-    db.prepare(
+    await db.prepare(
       `INSERT INTO calls (post_id, template, asset_symbol, feed_id, direction, target_price, expiry_at, confidence, extraction_json, status)
        VALUES (?,?,?,?,?,?,?,?,?,?)`
     ).run(
@@ -172,21 +172,21 @@ function seedCaller(db: ReturnType<typeof getDb>, c: Caller, startPostId: number
  * `--force` still allows it, because a demo database is meant to be disposable — the point
  * is that discarding real evidence should be a decision rather than a default.
  */
-function guardRealRows() {
-  const db = getDb();
+async function guardRealRows() {
+  const db = await getDb();
   try {
-    const count = (table: string) => {
+    const count = async (table: string) => {
       try {
-        return (db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE synthetic = 0`).get() as { n: number }).n;
+        return ((await db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE synthetic = 0`).get()) as { n: number }).n;
       } catch {
         return 0; // table not created yet — nothing to lose
       }
     };
-    const executions = count("executions");
-    const posts = count("posts");
-    const attested = (() => {
+    const executions = await count("executions");
+    const posts = await count("posts");
+    const attested = await (async () => {
       try {
-        return (db.prepare("SELECT COUNT(*) AS n FROM attestations").get() as { n: number }).n;
+        return ((await db.prepare("SELECT COUNT(*) AS n FROM attestations").get()) as { n: number }).n;
       } catch {
         return 0;
       }
@@ -201,7 +201,7 @@ async function main() {
   const reset = process.argv.includes("--reset");
   const force = process.argv.includes("--force");
   if (reset && fs.existsSync(DB_PATH)) {
-    const real = guardRealRows();
+    const real = await guardRealRows();
     if (real.any && !force) {
       console.error(`refusing to delete ${path.relative(process.cwd(), DB_PATH)} — it holds real records:`);
       if (real.executions) console.error(`  ${real.executions} execution(s) from a signed XRPL Payment (synthetic = 0)`);
@@ -228,12 +228,12 @@ Pass --force if you mean it.`);
     process.exit(1);
   }
 
-  const db = getDb();
+  const db = await getDb();
   const status = await fspStatus();
   const now = status.latestStart;
 
   let nextPostId = 1;
-  for (const c of CALLERS) nextPostId = seedCaller(db, c, nextPostId, now);
+  for (const c of CALLERS) nextPostId = await seedCaller(db, c, nextPostId, now);
 
   const total = CALLERS.reduce((n, c) => n + c.seeds.length, 0);
   console.log(`seeded ${CALLERS.length} callers, ${total} calls`);
@@ -264,18 +264,18 @@ Pass --force if you mean it.`);
   // One wallet event that contradicts a live long call, so said-vs-did has a case.
   // The window in lib/said-did is what decides whether this counts; it is placed
   // well inside it rather than on the boundary.
-  const xrpLong = db
+  const xrpLong = (await db
     .prepare("SELECT id, post_id FROM calls WHERE asset_symbol='XRP' AND direction='long' ORDER BY id LIMIT 1")
-    .get() as { id: number; post_id: number } | undefined;
+    .get()) as { id: number; post_id: number } | undefined;
   if (xrpLong) {
-    const posted = (db.prepare("SELECT posted_at FROM posts WHERE id = ?").get(xrpLong.post_id) as { posted_at: number })
+    const posted = ((await db.prepare("SELECT posted_at FROM posts WHERE id = ?").get(xrpLong.post_id)) as { posted_at: number })
       .posted_at;
 
     // `token_address` is a carry-over from an ERC-20 shaped model. On Flare the
     // asset is identified by its FTSO feed, so the column holds the feed id — the
     // schema's UNIQUE (tx_hash, token_address, side) still does its job of stopping
     // one transfer being counted twice.
-    db.prepare(
+    await db.prepare(
       `INSERT INTO wallet_events (influencer_id, tx_hash, asset_symbol, token_address, side, usd_value, occurred_at, synthetic)
        VALUES (1,?,?,?,?,?,?,1)`
     ).run(`0x${"ab".repeat(32)}`, "XRP", resolveFeed("XRP"), "sell", 27500, posted + 6 * 3600);
@@ -283,20 +283,20 @@ Pass --force if you mean it.`);
     // Run the real detector rather than asserting the contradiction by hand: the
     // seed should exercise lib/said-did, not encode its conclusion. If the window
     // logic ever changes, this row stops appearing and the UI honestly shows none.
-    const calls = db
+    const calls = (await db
       .prepare(
         `SELECT c.id AS id, c.direction, c.asset_symbol, p.posted_at
            FROM calls c JOIN posts p ON p.id = c.post_id
           WHERE p.influencer_id = 1 AND c.direction IS NOT NULL`
       )
-      .all() as unknown as { id: number; direction: "long" | "short"; asset_symbol: string; posted_at: number }[];
-    const events = db
+      .all()) as unknown as { id: number; direction: "long" | "short"; asset_symbol: string; posted_at: number }[];
+    const events = (await db
       .prepare("SELECT id, asset_symbol, side, occurred_at FROM wallet_events WHERE influencer_id = 1")
-      .all() as unknown as { id: number; asset_symbol: string; side: "buy" | "sell"; occurred_at: number }[];
+      .all()) as unknown as { id: number; asset_symbol: string; side: "buy" | "sell"; occurred_at: number }[];
 
     const found = findContradictions(calls, events);
     for (const f of found) {
-      db.prepare("INSERT INTO contradictions (call_id, wallet_event_id, gap_hours) VALUES (?,?,?)").run(
+      await db.prepare("INSERT INTO contradictions (call_id, wallet_event_id, gap_hours) VALUES (?,?,?)").run(
         f.callId,
         f.eventId,
         f.gapHours
@@ -332,7 +332,7 @@ Pass --force if you mean it.`);
   // supposedly took. Three rules keep that honest:
   //   - `synthetic` is 1, so the UI renders the identifiers as plain text instead
   //     of linking them to a public explorer. It used to link them, and the link
-  //     404'd — see lib/schema.sql.
+  //     404'd — see lib/schema.pg.sql.
   //   - `flare_tx_hash` is NULL and one row is left `pending`. No Payment was ever
   //     dispatched for THESE rows, so claiming a Flare tx would be the one fabrication
   //     the portfolio page cannot survive. (Real executions do exist now — they arrive
@@ -347,9 +347,9 @@ Pass --force if you mean it.`);
   const DEMO_XRPL_ACCOUNT = "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh";
   let seededCount = 0;
   for (const [callId, mode, direction, amount, status] of seededExecutions) {
-    const exists = db.prepare("SELECT 1 FROM calls WHERE id = ?").get(callId);
+    const exists = await db.prepare("SELECT 1 FROM calls WHERE id = ?").get(callId);
     if (!exists) continue;
-    db.prepare(
+    await db.prepare(
       `INSERT INTO executions
          (call_id, mode, xrpl_account, xrpl_tx_hash, direction, fxrp_amount, flare_tx_hash, status, created_at, synthetic)
        VALUES (?,?,?,?,?,?,NULL,?,?,1)`
@@ -369,7 +369,7 @@ Pass --force if you mean it.`);
 
   console.log("");
   for (const c of CALLERS) {
-    const d = buildDossier(c.handle, db);
+    const d = await buildDossier(c.handle, db);
     if (!d) continue;
     console.log(
       `${d.handle.padEnd(14)} ${String(d.stats.settled).padStart(2)} settled  win ${String(d.stats.winRate).padStart(3)}%  ` +

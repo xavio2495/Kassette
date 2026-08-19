@@ -8,6 +8,17 @@ import { fileURLToPath } from "node:url";
 // (`resolveTweetUrl`) failed to resolve, which is the honest signal that the two
 // resolvers had never actually agreed.
 export default defineConfig({
+  test: {
+    // ⚠️ Database tests each open a scratch schema on a real Neon database, over the
+    // UNPOOLED endpoint (pgbouncer rejects the `search_path` startup option). Neon's
+    // connection budget is small, and running test files in parallel exhausted it —
+    // "timeout exceeded when trying to connect", which reads like a broken query rather
+    // than too many sockets. Serial files keep the concurrent connection count at one.
+    fileParallelism: false,
+    // A round trip to us-east-1 is far slower than SQLite's in-process call was.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
+  },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL(".", import.meta.url)),

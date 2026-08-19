@@ -23,6 +23,7 @@
 // is. Note it 301-redirects from `publish.twitter.com`; the canonical host is used directly
 // so the attested request does not depend on a redirect being followed.
 import { ethers, network } from "hardhat";
+import { openDb } from "./pgdb";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -246,7 +247,7 @@ async function main() {
     if (process.env.SEED_DB === "1") {
         await recordInDemoDb(String(dto.postId), requestBytes, Number(decoded.votingRound), proofJson, tx.hash);
     } else {
-        console.log(`\n   (pass SEED_DB=1 to attach this to the matching call in web/kassette.db)`);
+        console.log(`\n   (pass SEED_DB=1 to attach this to the matching call in the database)`);
     }
 }
 
@@ -265,36 +266,37 @@ async function recordInDemoDb(
     proof: { response_hex?: string; proof?: string[] },
     txHash: string,
 ) {
-    const dbPath = process.env.DB_PATH ?? path.join(__dirname, "..", "..", "web", "kassette.db");
-    if (!fs.existsSync(dbPath)) {
-        console.log(`\n   SEED_DB=1 but no database at ${dbPath}`);
-        return;
-    }
-    const { DatabaseSync } = await import("node:sqlite");
-    const db = new DatabaseSync(dbPath);
+    // Postgres (Neon) — the same database the app reads.
+    const db = openDb();
     try {
-        const row = db.prepare("SELECT c.id FROM calls c JOIN posts p ON p.id = c.post_id WHERE p.platform_post_id LIKE ?").get(
-            `%${postId}`,
-        ) as { id: number } | undefined;
+        const row = await db.get<{ id: number }>(
+            "SELECT c.id FROM calls c JOIN posts p ON p.id = c.post_id WHERE p.platform_post_id LIKE ?",
+            [`%${postId}`],
+        );
         if (!row) {
             console.log(`\n   no call in the database for post ${postId} — run proveChain.ts SEED_DB=1 first`);
             return;
         }
-        db.prepare(
+        // ⚠️ UPDATE-then-INSERT, never an upsert that names only these columns: the row's
+        // other half is the two TEE signatures written by proveChain.ts, and the two
+        // attestations are produced hours apart. Overwriting the whole row here would destroy
+        // evidence that cost a voting round to obtain.
+        const changed = await db.run(
             `UPDATE attestations
                 SET fdc_request_bytes = ?, fdc_voting_round_id = ?, fdc_proof_json = ?, fdc_verified_tx = ?
               WHERE call_id = ?`,
-        ).run(requestBytes, votingRound, JSON.stringify(proof), txHash, row.id);
-        const changed = db.prepare("SELECT changes() AS n").get() as { n: number };
-        if (changed.n === 0) {
-            db.prepare(
+            [requestBytes, votingRound, JSON.stringify(proof), txHash, row.id],
+        );
+        if (changed === 0) {
+            await db.run(
                 `INSERT INTO attestations (call_id, fdc_request_bytes, fdc_voting_round_id, fdc_proof_json, fdc_verified_tx, verified)
                  VALUES (?,?,?,?,?,0)`,
-            ).run(row.id, requestBytes, votingRound, JSON.stringify(proof), txHash);
+                [row.id, requestBytes, votingRound, JSON.stringify(proof), txHash],
+            );
         }
-        console.log(`\n   recorded against call ${row.id} in ${path.relative(process.cwd(), dbPath)}`);
+        console.log(`\n   recorded against call ${row.id} in Neon Postgres`);
     } finally {
-        db.close();
+        await db.close();
     }
 }
 

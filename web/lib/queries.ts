@@ -7,9 +7,8 @@
 // attestation, an unpriceable asset — the field is null and the UI renders an empty
 // state. `docs/frontend-features.md`'s "no fabricated data" rule is a data-layer
 // property first; a UI cannot honour it if the query already guessed.
-import type { DatabaseSync } from "node:sqlite";
-import { getDb } from "./db";
-import { buildDossier } from "./dossier";
+import { getDb, type Db } from "./db";
+import { callerScorecards } from "./scorecards";
 import { NOTIONAL } from "./score";
 
 // Headline return: total P&L over the notional actually deployed. dossierStats sums
@@ -42,34 +41,50 @@ export interface InfluencerSummary {
 /**
  * The home page's trending list and the leaderboard.
  *
- * ⚠️ Runs buildDossier per caller rather than a bespoke aggregate. That is O(callers)
- * queries and would be wrong at scale, but it is right here: the headline number a
- * caller is ranked by must be the identical number their dossier shows, and a
- * separate "fast" aggregate is exactly how those two drift apart. The demo set is a
- * handful of callers; revisit only when that stops being true.
+ * ⚠️ This used to run `buildDossier` per caller, deliberately, with a comment warning that
+ * "a separate fast aggregate is exactly how those two drift apart". That warning was right
+ * and is worth restating rather than deleting: **the headline number a caller is ranked by
+ * must be the identical number their dossier page shows.**
+ *
+ * What changed is the cost, not the principle. On SQLite the per-caller dossiers were
+ * in-process and free; against Neon they were **27 seconds** for this one route, which is not
+ * a demo that survives being clicked. So the aggregate now exists — and the drift the old
+ * comment feared is held off by `tests/scorecards.test.ts`, which recomputes every caller
+ * both ways over the real dataset and fails on any field that disagrees.
+ *
+ * If you change `lib/score.ts`, that test fails until `lib/scorecards.ts` matches. Keep it
+ * that way; it is the only thing making the fast path safe.
  */
-export function listInfluencers(database?: DatabaseSync): InfluencerSummary[] {
-  const db = database ?? getDb();
-  const rows = db
+export async function listInfluencers(database?: Db): Promise<InfluencerSummary[]> {
+  const db = database ?? (await getDb());
+  const rows = (await db
     .prepare("SELECT handle, display_name, wallet_address FROM influencers ORDER BY handle")
-    .all() as unknown as { handle: string; display_name: string | null; wallet_address: string | null }[];
+    .all()) as unknown as { handle: string; display_name: string | null; wallet_address: string | null }[];
+
+  // ⚠️ ONE query for every caller's headline numbers. This route used to build a full dossier
+  // per caller — every call, mark and contradiction — and keep two numbers from each. On
+  // SQLite that was free; against Neon it took **27 seconds**. `callerScorecards` computes
+  // the same arithmetic in SQL, and `tests/scorecards.test.ts` asserts it agrees with
+  // `buildDossier` field by field, because a pill that disagrees with the dossier page it
+  // links to would be a visible contradiction in a product about checkable numbers.
+  const cards = await callerScorecards(db);
 
   const out: InfluencerSummary[] = [];
   for (const r of rows) {
-    const d = buildDossier(r.handle, db);
+    const d = cards.get(r.handle);
     if (!d) continue;
     out.push({
       handle: r.handle,
       displayName: r.display_name,
-      callCount: d.calls.length,
-      settled: d.stats.settled,
+      callCount: d.callCount,
+      settled: d.settled,
       // A caller with nothing settled has no win rate — not a win rate of zero.
-      winRate: d.stats.settled > 0 ? d.stats.winRate : null,
-      headlinePct: headlinePct(d.stats.totalPnl, d.stats.settled + d.stats.open),
-      totalPnl: d.stats.settled > 0 ? d.stats.totalPnl : null,
-      benchmarkPnl: d.stats.settled > 0 ? d.stats.benchmarkPnl : null,
+      winRate: d.settled > 0 ? d.winRate : null,
+      headlinePct: headlinePct(d.totalPnl, d.settled + d.open),
+      totalPnl: d.settled > 0 ? d.totalPnl : null,
+      benchmarkPnl: d.settled > 0 ? d.benchmarkPnl : null,
       hasWallet: !!r.wallet_address,
-      contradictionRate: d.insights.contradictionRate,
+      contradictionRate: d.contradictionRate,
     });
   }
 
@@ -107,9 +122,9 @@ export interface FeedCall {
 }
 
 /** Recent calls across every caller — the terminal feed. */
-export function recentCalls(limit = 50, database?: DatabaseSync): FeedCall[] {
-  const db = database ?? getDb();
-  const rows = db
+export async function recentCalls(limit = 50, database?: Db): Promise<FeedCall[]> {
+  const db = database ?? (await getDb());
+  const rows = (await db
     .prepare(
       `SELECT c.id, i.handle, i.display_name, p.content, p.url, p.posted_at, p.deleted_at,
               c.template, c.asset_symbol, c.direction, c.target_price, c.confidence, c.status,
@@ -122,7 +137,7 @@ export function recentCalls(limit = 50, database?: DatabaseSync): FeedCall[] {
         ORDER BY p.posted_at DESC
         LIMIT ?`
     )
-    .all(limit) as unknown as {
+    .all(limit)) as unknown as {
       id: number; handle: string; display_name: string | null; content: string; url: string;
       posted_at: number; deleted_at: number | null; template: string; asset_symbol: string | null;
       direction: "long" | "short" | null; target_price: number | null; confidence: number;
@@ -131,15 +146,22 @@ export function recentCalls(limit = 50, database?: DatabaseSync): FeedCall[] {
 
   // One dossier per distinct caller in the page, memoised — the track-record pill
   // must show the same number as that caller's dossier page.
-  const records = new Map<string, { winRate: number | null; pnl: number | null }>();
-  for (const r of rows) {
-    if (records.has(r.handle)) continue;
-    const d = buildDossier(r.handle, db);
-    records.set(r.handle, {
-      winRate: d && d.stats.settled > 0 ? d.stats.winRate : null,
-      pnl: d && d.stats.settled > 0 ? d.stats.totalPnl : null,
-    });
-  }
+  // ⚠️ One query, not a dossier per distinct caller — same reason as `listInfluencers`. The
+  // pill must show the same number as that caller's dossier page, which is what
+  // `tests/scorecards.test.ts` pins.
+  const cards = await callerScorecards(db);
+  const records = new Map<string, { winRate: number | null; pnl: number | null }>(
+    [...new Set(rows.map((r) => r.handle))].map((h) => {
+      const d = cards.get(h);
+      return [
+        h,
+        {
+          winRate: d && d.settled > 0 ? d.winRate : null,
+          pnl: d && d.settled > 0 ? d.totalPnl : null,
+        },
+      ];
+    })
+  );
 
   return rows.map((r) => ({
     id: r.id,
@@ -192,9 +214,9 @@ export interface Receipt {
   } | null;
 }
 
-export function getReceipt(callId: number, database?: DatabaseSync): Receipt | null {
-  const db = database ?? getDb();
-  const row = db
+export async function getReceipt(callId: number, database?: Db): Promise<Receipt | null> {
+  const db = database ?? (await getDb());
+  const row = (await db
     .prepare(
       `SELECT c.id, i.handle, p.content, p.url, p.posted_at, p.deleted_at, p.content_hash,
               c.template, c.asset_symbol, c.direction, c.target_price, c.confidence, c.extraction_json,
@@ -207,7 +229,7 @@ export function getReceipt(callId: number, database?: DatabaseSync): Receipt | n
          LEFT JOIN attestations a ON a.call_id = c.id
         WHERE c.id = ?`
     )
-    .get(callId) as unknown as Record<string, unknown> | undefined;
+    .get(callId)) as unknown as Record<string, unknown> | undefined;
   if (!row) return null;
 
   let raw: unknown = null;
@@ -311,12 +333,12 @@ export interface ExecutionsResponse {
  * so a P&L number would have to be invented.
  * The page says so rather than showing a confident zero.
  */
-export function listExecutions(xrplAccount?: string, database?: DatabaseSync): ExecutionsResponse {
-  const db = database ?? getDb();
+export async function listExecutions(xrplAccount?: string, database?: Db): Promise<ExecutionsResponse> {
+  const db = database ?? (await getDb());
   const where = xrplAccount ? "WHERE e.xrpl_account = ?" : "";
   const args = xrplAccount ? [xrplAccount] : [];
 
-  const rows = db
+  const rows = (await db
     .prepare(
       `SELECT e.id, e.call_id, e.mode, e.xrpl_account, e.xrpl_tx_hash, e.direction,
               e.fxrp_amount, e.flare_tx_hash, e.status, e.reason, e.created_at, e.synthetic,
@@ -328,7 +350,7 @@ export function listExecutions(xrplAccount?: string, database?: DatabaseSync): E
          ${where}
         ORDER BY e.created_at DESC`
     )
-    .all(...args) as unknown as {
+    .all(...args)) as unknown as {
       id: number; call_id: number; mode: "copy" | "fade"; xrpl_account: string;
       xrpl_tx_hash: string | null; direction: "long" | "short"; fxrp_amount: string | null;
       flare_tx_hash: string | null; status: string; reason: string | null; created_at: number;

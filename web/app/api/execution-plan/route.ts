@@ -42,14 +42,14 @@ export async function GET(request: Request) {
   if (!Number.isFinite(fxrp) || fxrp <= 0) return fail("fxrp must be a positive number", 400);
 
   return handle(async () => {
-    const db = getDb();
-    const row = db
+    const db = await getDb();
+    const row = (await db
       .prepare(
         `SELECT c.id, c.direction, c.asset_symbol, p.content_hash
            FROM calls c JOIN posts p ON p.id = c.post_id
           WHERE c.id = ?`
       )
-      .get(callId) as { id: number; direction: string | null; asset_symbol: string | null; content_hash: string } | undefined;
+      .get(callId)) as { id: number; direction: string | null; asset_symbol: string | null; content_hash: string } | undefined;
     if (!row) throw new Error(`no call ${callId}`);
 
     // An ambiguous call has no direction, so there is no position to take. Offering one

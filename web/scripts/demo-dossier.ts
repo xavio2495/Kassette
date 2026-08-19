@@ -2,7 +2,9 @@
 // them from anchor feeds, and build the dossier the UI will render.
 //
 //   npx tsx scripts/demo-dossier.ts
-import { openMemoryDb } from "../lib/db";
+import { openScratchDb, closeDb } from "../lib/db";
+
+let cleanup: (() => Promise<void>) | undefined;
 import { markCall } from "../lib/marks";
 import { buildDossier } from "../lib/dossier";
 import { fspStatus } from "../lib/ftso";
@@ -11,11 +13,12 @@ import { resolveFeed } from "../lib/feeds";
 const DAY = 86400;
 
 async function main() {
-  const db = openMemoryDb();
+  const { db, drop } = await openScratchDb("demo");
+  cleanup = drop;
   const status = await fspStatus();
   const now = status.latestStart;
 
-  db.prepare("INSERT INTO influencers (handle, display_name) VALUES ('demo_caller', 'Demo Caller')").run();
+  await db.prepare("INSERT INTO influencers (handle, display_name) VALUES ('demo_caller', 'Demo Caller')").run();
 
   // Deliberately spread across months — the 2-week figure in the docs bounds
   // neither retrieval nor on-chain verification (FINDINGS §3), so a long
@@ -27,15 +30,15 @@ async function main() {
     { daysAgo: 7, symbol: "PEPE", direction: "long", text: "$PEPE next leg up" },
   ] as const;
 
-  seeds.forEach((s, i) => {
+  for (const [i, s] of seeds.entries()) {
     const postedAt = now - s.daysAgo * DAY;
-    db.prepare(
+    await db.prepare(
       "INSERT INTO posts (influencer_id, platform_post_id, content, content_hash, url, posted_at) VALUES (1,?,?,?,?,?)"
     ).run(`p${i}`, s.text, `0x${(i + 1).toString(16).padStart(64, "0")}`, `https://x.com/demo_caller/status/${i}`, postedAt);
-    db.prepare(
+    await db.prepare(
       "INSERT INTO calls (post_id, template, asset_symbol, feed_id, direction, confidence, status) VALUES (?,?,?,?,?,?,?)"
     ).run(i + 1, "DIRECTIONAL", s.symbol, resolveFeed(s.symbol), s.direction, 0.9, "settled");
-  });
+  }
 
   console.log(`pricing ${seeds.length} calls against FTSO anchor feeds (latest round ${status.latestRound})\n`);
   for (let i = 1; i <= seeds.length; i++) {
@@ -44,7 +47,7 @@ async function main() {
     console.log(`  call ${i}  ${s.symbol.padEnd(5)} ${s.direction.padEnd(5)} ${String(s.daysAgo).padStart(3)}d ago  →  ${r.status}${r.reason ? ` (${r.reason})` : ""}`);
   }
 
-  const d = buildDossier("demo_caller", db)!;
+  const d = (await buildDossier("demo_caller", db))!;
   console.log(`\n${d.displayName} — ${d.stats.settled} settled, ${d.stats.open} open, win rate ${d.stats.winRate}%`);
   console.log(`total P&L $${d.stats.totalPnl} vs benchmark $${d.stats.benchmarkPnl} (at $1,000 notional per call)\n`);
 
@@ -57,7 +60,14 @@ async function main() {
   }
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  })
+  // The scratch schema is a real object in the shared database, so it must be dropped even
+  // when the run fails — otherwise every aborted run leaves one behind.
+  .finally(async () => {
+    await cleanup?.();
+    await closeDb().catch(() => {});
+  });

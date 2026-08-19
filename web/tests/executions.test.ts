@@ -8,13 +8,11 @@
 //
 // The 1000-block chunk size is not arbitrary — it is the widest range the logs-serving
 // Coston2 RPCs accept (measured 2026-08-18; the public one caps at 30). See lib/executions.ts.
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 
 import { getLogsChunked, markFailed } from "../lib/executions";
+import { openScratchDb, type Db } from "../lib/db";
 
 /** Records every window asked for, so the tiling can be asserted rather than inferred. */
 function recorder(hits: Record<string, string[]> = {}) {
@@ -99,32 +97,38 @@ describe("getLogsChunked", () => {
 });
 
 describe("markFailed", () => {
-  function seeded() {
-    const db = new DatabaseSync(":memory:");
-    db.exec(readFileSync(path.join(__dirname, "..", "lib", "schema.sql"), "utf8"));
-    db.prepare("INSERT INTO influencers (handle, platform, display_name) VALUES ('a','x','A')").run();
-    db.prepare(
+  let db: Db;
+  let drop: () => Promise<void>;
+
+  beforeEach(async () => {
+    ({ db, drop } = await openScratchDb("exec"));
+    await db.prepare("INSERT INTO influencers (handle, platform, display_name) VALUES ('a','x','A')").run();
+    await db.prepare(
       "INSERT INTO posts (influencer_id, platform_post_id, content, content_hash, url, posted_at) VALUES (1,'p','t','0xhash','u',1)"
     ).run();
-    db.prepare(
+    await db.prepare(
       "INSERT INTO calls (post_id, template, asset_symbol, direction, confidence, status) VALUES (1,'DIRECTIONAL','XRP','long',0.9,'open')"
     ).run();
-    const ins = (hash: string, status: string) =>
-      db
-        .prepare(
-          `INSERT INTO executions (call_id, mode, xrpl_account, xrpl_tx_hash, direction, fxrp_amount, status, created_at, synthetic)
-           VALUES (1,'copy','r1',?,'long','10',?,1,0)`
-        )
-        .run(hash, status);
-    return { db, ins };
-  }
+  });
 
-  it("closes a pending row and records why", () => {
-    const { db, ins } = seeded();
-    ins("AAA", "pending");
+  // The scratch schema is a real object in the shared Neon database, not a file.
+  afterEach(async () => {
+    await drop();
+  });
 
-    expect(markFailed("AAA", "nonce moved past this Payment", db)).toBe(true);
-    const row = db.prepare("SELECT status, reason FROM executions WHERE xrpl_tx_hash = 'AAA'").get() as {
+  const ins = (hash: string, status: string) =>
+    db
+      .prepare(
+        `INSERT INTO executions (call_id, mode, xrpl_account, xrpl_tx_hash, direction, fxrp_amount, status, created_at, synthetic)
+         VALUES (1,'copy','r1',?,'long','10',?,1,0)`
+      )
+      .run(hash, status);
+
+  it("closes a pending row and records why", async () => {
+    await ins("AAA", "pending");
+
+    expect(await markFailed("AAA", "nonce moved past this Payment", db)).toBe(true);
+    const row = (await db.prepare("SELECT status, reason FROM executions WHERE xrpl_tx_hash = 'AAA'").get()) as {
       status: string;
       reason: string;
     };
@@ -132,14 +136,13 @@ describe("markFailed", () => {
     expect(row.reason).toBe("nonce moved past this Payment");
   });
 
-  it("refuses to demote a confirmed execution", () => {
+  it("refuses to demote a confirmed execution", async () => {
     // ⚠️ The guard that matters: a late failure report must never overwrite a mint the
     // registry already confirmed.
-    const { db, ins } = seeded();
-    ins("BBB", "executed");
+    await ins("BBB", "executed");
 
-    expect(markFailed("BBB", "should not apply", db)).toBe(false);
-    const row = db.prepare("SELECT status, reason FROM executions WHERE xrpl_tx_hash = 'BBB'").get() as {
+    expect(await markFailed("BBB", "should not apply", db)).toBe(false);
+    const row = (await db.prepare("SELECT status, reason FROM executions WHERE xrpl_tx_hash = 'BBB'").get()) as {
       status: string;
       reason: string | null;
     };
@@ -147,13 +150,12 @@ describe("markFailed", () => {
     expect(row.reason).toBeNull();
   });
 
-  it("is idempotent — failing an already-failed row reports no change", () => {
-    const { db, ins } = seeded();
-    ins("CCC", "pending");
+  it("is idempotent — failing an already-failed row reports no change", async () => {
+    await ins("CCC", "pending");
 
-    expect(markFailed("CCC", "first", db)).toBe(true);
-    expect(markFailed("CCC", "second", db)).toBe(false);
-    const row = db.prepare("SELECT reason FROM executions WHERE xrpl_tx_hash = 'CCC'").get() as { reason: string };
+    expect(await markFailed("CCC", "first", db)).toBe(true);
+    expect(await markFailed("CCC", "second", db)).toBe(false);
+    const row = (await db.prepare("SELECT reason FROM executions WHERE xrpl_tx_hash = 'CCC'").get()) as { reason: string };
     expect(row.reason).toBe("first");
   });
 });

@@ -29,11 +29,10 @@
 // fabricated attribution. Measured on the live timelines: this removes a large
 // share of what these accounts post.
 
-import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { keccak256, stringToHex } from "viem";
-import { getDb } from "../lib/db";
+import { getDb, type Db } from "../lib/db";
 import { parseSignal, CONFIDENCE_THRESHOLD, DEFAULT_EXPIRY_DAYS, type Signal } from "../lib/signal-schema";
 import { mentionsAsset, resolveFeed } from "../lib/feeds";
 import { markCall } from "../lib/marks";
@@ -417,16 +416,16 @@ function extractionBlob(signal: Signal, provider: ProviderName): string {
 }
 
 /** The one place a post row is written, so both modes store it identically. */
-function storePost(db: DatabaseSync, handle: string, t: RawTweet, postedAt: number): number {
+async function storePost(db: Db, handle: string, t: RawTweet, postedAt: number): Promise<number> {
   const infId = upsertInfluencer(db, handle, t.author?.name ?? null, t.author?.profilePicture ?? null);
-  db.prepare(
+  await db.prepare(
     `INSERT INTO posts (influencer_id, platform_post_id, content, content_hash, url, posted_at, raw_json, synthetic)
      VALUES (?,?,?,?,?,?,?,0)`
   ).run(
     infId, t.id, t.text, keccak256(stringToHex(t.text)),
     `https://x.com/${handle}/status/${t.id}`, postedAt, JSON.stringify(t)
   );
-  return (db.prepare("SELECT id FROM posts WHERE platform_post_id = ?").get(t.id) as { id: number }).id;
+  return ((await db.prepare("SELECT id FROM posts WHERE platform_post_id = ?").get(t.id)) as { id: number }).id;
 }
 
 /**
@@ -436,8 +435,8 @@ function storePost(db: DatabaseSync, handle: string, t: RawTweet, postedAt: numb
  * daily quota costs nothing but the requests it already made — run it again
  * after the reset and it continues from the first unclassified post.
  */
-async function classifyPending(db: DatabaseSync, ring: KeyRing, provider: ProviderName, limit: number, dryRun: boolean) {
-  const pending = db
+async function classifyPending(db: Db, ring: KeyRing, provider: ProviderName, limit: number, dryRun: boolean) {
+  const pending = (await db
     .prepare(
       `SELECT p.id, p.content, p.posted_at, i.handle
          FROM posts p
@@ -453,7 +452,7 @@ async function classifyPending(db: DatabaseSync, ring: KeyRing, provider: Provid
           AND NOT EXISTS (SELECT 1 FROM calls WHERE calls.post_id = p.id)
         ORDER BY p.posted_at DESC`
     )
-    .all() as unknown as { id: number; content: string; posted_at: number; handle: string }[];
+    .all()) as unknown as { id: number; content: string; posted_at: number; handle: string }[];
 
   // ⚠️ Ordering, NOT filtering. Every pending post still gets classified; this
   // only decides which ones a single day's token budget buys first. The free
@@ -476,7 +475,7 @@ async function classifyPending(db: DatabaseSync, ring: KeyRing, provider: Provid
   const started = Date.now();
   let signals = 0, ambiguous = 0, notSignal = 0, priced = 0, unpriceable = 0;
 
-  const stamp = db.prepare("UPDATE posts SET classified_at = ? WHERE id = ?");
+  const stamp = await db.prepare("UPDATE posts SET classified_at = ? WHERE id = ?");
   for (const row of rows) {
     const signal = await extract(row.content, ring, provider);
     // ⚠️ Stamped for EVERY verdict, before any early `continue`. A NOT_A_SIGNAL
@@ -505,7 +504,7 @@ async function classifyPending(db: DatabaseSync, ring: KeyRing, provider: Provid
     if (dryRun) continue;
 
     const expiryDays = signal.expiry_days ?? DEFAULT_EXPIRY_DAYS[signal.template] ?? 7;
-    db.prepare(
+    await db.prepare(
       `INSERT INTO calls (post_id, template, asset_symbol, feed_id, direction, target_price, expiry_at, confidence, extraction_json, status)
        VALUES (?,?,?,?,?,?,?,?,?,?)`
     ).run(
@@ -514,7 +513,7 @@ async function classifyPending(db: DatabaseSync, ring: KeyRing, provider: Provid
       belowBar ? "ambiguous" : feed ? "open" : "unpriceable"
     );
     if (!belowBar && feed) {
-      const callId = (db.prepare("SELECT id FROM calls WHERE post_id = ?").get(row.id) as { id: number }).id;
+      const callId = ((await db.prepare("SELECT id FROM calls WHERE post_id = ?").get(row.id)) as { id: number }).id;
       try {
         const r = await markCall(callId, { db });
         if (r.status === "marked") priced++;
@@ -533,16 +532,16 @@ async function classifyPending(db: DatabaseSync, ring: KeyRing, provider: Provid
   );
 }
 
-function upsertInfluencer(db: DatabaseSync, handle: string, displayName: string | null, avatar: string | null): number {
-  const existing = db.prepare("SELECT id FROM influencers WHERE handle = ?").get(handle) as { id: number } | undefined;
+async function upsertInfluencer(db: Db, handle: string, displayName: string | null, avatar: string | null): Promise<number> {
+  const existing = (await db.prepare("SELECT id FROM influencers WHERE handle = ?").get(handle)) as { id: number } | undefined;
   if (existing) return existing.id;
   // ⚠️ wallet_address and disclosure_source_url stay null. A wallet only enters
   // this table with a URL proving the caller disclosed it themselves; the schema
   // enforces that the two are set together, and no OSINT is permitted.
-  db.prepare(
+  await db.prepare(
     "INSERT INTO influencers (handle, platform, display_name, avatar_url) VALUES (?, 'x', ?, ?)"
   ).run(handle, displayName, avatar);
-  return (db.prepare("SELECT id FROM influencers WHERE handle = ?").get(handle) as { id: number }).id;
+  return ((await db.prepare("SELECT id FROM influencers WHERE handle = ?").get(handle)) as { id: number }).id;
 }
 
 async function main() {
@@ -576,7 +575,7 @@ async function main() {
       console.log("⚠️  this model is NOT the one pinned in FCE-B, so these extractions would");
       console.log("   not match the enclave's. Each call records that in extraction_json.\n");
     }
-    await classifyPending(getDb(), ring, providerArg, limit, dryRun);
+    await classifyPending((await getDb()), ring, providerArg, limit, dryRun);
     return;
   }
 
@@ -585,7 +584,7 @@ async function main() {
   };
   const handles = only ? [only] : list.handles;
 
-  const db = getDb();
+  const db = await getDb();
   let posts = 0, signals = 0, ambiguous = 0, skipped = 0, priced = 0, unpriceable = 0;
 
   for (const [n, handle] of handles.entries()) {
@@ -610,7 +609,7 @@ async function main() {
       const postedAt = parsePostedAt(t.createdAt);
       if (postedAt == null) { skipped++; continue; }
 
-      const already = db.prepare("SELECT 1 FROM posts WHERE platform_post_id = ?").get(t.id);
+      const already = await db.prepare("SELECT 1 FROM posts WHERE platform_post_id = ?").get(t.id);
       if (already) { skipped++; continue; }
 
       if (fetchOnly) {
@@ -660,7 +659,7 @@ async function main() {
       const postId = storePost(db, handle, t, postedAt);
 
       const expiryDays = signal.expiry_days ?? DEFAULT_EXPIRY_DAYS[signal.template] ?? 7;
-      db.prepare(
+      await db.prepare(
         `INSERT INTO calls (post_id, template, asset_symbol, feed_id, direction, target_price, expiry_at, confidence, extraction_json, status)
          VALUES (?,?,?,?,?,?,?,?,?,?)`
       ).run(
@@ -670,7 +669,7 @@ async function main() {
       );
 
       if (!belowBar && feed) {
-        const callId = (db.prepare("SELECT id FROM calls WHERE post_id = ?").get(postId) as { id: number }).id;
+        const callId = ((await db.prepare("SELECT id FROM calls WHERE post_id = ?").get(postId)) as { id: number }).id;
         try {
           const r = await markCall(callId, { db });
           if (r.status === "marked") priced++;

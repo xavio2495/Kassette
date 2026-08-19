@@ -68,22 +68,24 @@ export async function POST(request: Request) {
   const account = body.xrplAccount;
 
   return handle(async () => {
-    const db = getDb();
-    const row = db
+    const db = await getDb();
+    const row = (await db
       .prepare(
         `SELECT c.id, c.direction, p.content_hash
            FROM calls c JOIN posts p ON p.id = c.post_id
           WHERE c.id = ?`
       )
-      .get(callId) as { id: number; direction: "long" | "short" | null; content_hash: string } | undefined;
+      .get(callId)) as { id: number; direction: "long" | "short" | null; content_hash: string } | undefined;
     if (!row) throw new Error(`no call ${callId}`);
     if (!row.direction) throw new Error("this call has no extracted direction, so there is no position to record");
 
-    const existing = db.prepare("SELECT id, status FROM executions WHERE xrpl_tx_hash = ?").get(txHash.toUpperCase()) as
+    const existing = await db.prepare("SELECT id, status FROM executions WHERE xrpl_tx_hash = ?").get(txHash.toUpperCase()) as
       | { id: number; status: string }
       | undefined;
     if (!existing) {
-      recordPending(
+      // ⚠️ Awaited: the confirmation below reads the row this writes. Fire-and-forget left a
+      // race where the INSERT had not landed yet, and any write error vanished unhandled.
+      await recordPending(
         {
           callId,
           mode,
@@ -106,7 +108,7 @@ export async function POST(request: Request) {
     // (`callBound`) rather than dressed up as the stronger one.
     if (mode === "fade") {
       const created = (
-        db.prepare("SELECT created_at FROM executions WHERE xrpl_tx_hash = ?").get(txHash.toUpperCase()) as
+        await db.prepare("SELECT created_at FROM executions WHERE xrpl_tx_hash = ?").get(txHash.toUpperCase()) as
           | { created_at: number }
           | undefined
       )?.created_at;
@@ -116,7 +118,7 @@ export async function POST(request: Request) {
         notBefore: created ?? Math.floor(Date.now() / 1000),
       });
       if (fade.confirmed && fade.fxrpAmountUBA) {
-        markExecuted(txHash.toUpperCase(), fade.fxrpAmountUBA, info.assetMintingDecimals, db, fade.flareTxHash);
+        await markExecuted(txHash.toUpperCase(), fade.fxrpAmountUBA, info.assetMintingDecimals, db, fade.flareTxHash);
       }
       return {
         xrplTxHash: txHash.toUpperCase(),
@@ -134,7 +136,7 @@ export async function POST(request: Request) {
     // Same lookup the fade path does above: the row's own creation time, used to bind the
     // tx-hash search to THIS Payment rather than the newest matching log.
     const createdAt = (
-      db.prepare("SELECT created_at FROM executions WHERE xrpl_tx_hash = ?").get(txHash.toUpperCase()) as
+      await db.prepare("SELECT created_at FROM executions WHERE xrpl_tx_hash = ?").get(txHash.toUpperCase()) as
         | { created_at: number }
         | undefined
     )?.created_at;
@@ -152,7 +154,7 @@ export async function POST(request: Request) {
     });
 
     if (result.confirmed && result.fxrpAmountUBA) {
-      markExecuted(txHash.toUpperCase(), result.fxrpAmountUBA, info.assetMintingDecimals, db, result.flareTxHash);
+      await markExecuted(txHash.toUpperCase(), result.fxrpAmountUBA, info.assetMintingDecimals, db, result.flareTxHash);
     }
 
     return {

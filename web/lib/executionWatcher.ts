@@ -15,7 +15,7 @@
 // survive a serverless/edge deployment where the process is frozen between requests — that
 // would need a real scheduler (e.g. a cron-triggered route) instead of a live interval.
 
-import { getDb } from "./db";
+import { getDb, type Db } from "./db";
 import { getSmartAccountInfo } from "./flare";
 import { chainCallId } from "./callid";
 import { confirmFadeFromChain, confirmFromChain, markExecuted, markFailed } from "./executions";
@@ -33,7 +33,7 @@ interface PendingRow {
   nonce: string | null;
 }
 
-async function confirmOne(row: PendingRow, db: ReturnType<typeof getDb>): Promise<boolean> {
+async function confirmOne(row: PendingRow, db: Db): Promise<boolean> {
   const info = await getSmartAccountInfo(row.xrpl_account);
 
   if (row.mode === "fade") {
@@ -43,7 +43,7 @@ async function confirmOne(row: PendingRow, db: ReturnType<typeof getDb>): Promis
       notBefore: row.created_at,
     });
     if (fade.confirmed && fade.fxrpAmountUBA) {
-      markExecuted(row.xrpl_tx_hash, fade.fxrpAmountUBA, info.assetMintingDecimals, db, fade.flareTxHash);
+      await markExecuted(row.xrpl_tx_hash, fade.fxrpAmountUBA, info.assetMintingDecimals, db, fade.flareTxHash);
       return true;
     }
     return false;
@@ -59,13 +59,13 @@ async function confirmOne(row: PendingRow, db: ReturnType<typeof getDb>): Promis
     notBefore: row.created_at,
   });
   if (result.confirmed && result.fxrpAmountUBA) {
-    markExecuted(row.xrpl_tx_hash, result.fxrpAmountUBA, info.assetMintingDecimals, db, result.flareTxHash);
+    await markExecuted(row.xrpl_tx_hash, result.fxrpAmountUBA, info.assetMintingDecimals, db, result.flareTxHash);
     return true;
   }
   // Proven un-executable (stale nonce) — close it rather than re-checking it every 15s
   // forever with the diagnosis going nowhere.
   if (result.terminal && result.reason) {
-    if (markFailed(row.xrpl_tx_hash, result.reason, db)) {
+    if (await markFailed(row.xrpl_tx_hash, result.reason, db)) {
       console.log(`[executionWatcher] failed ${row.xrpl_tx_hash}: ${result.reason}`);
     }
   }
@@ -99,9 +99,9 @@ const TX_HASH_BACKFILL_MAX_AGE_S = 2 * 60 * 60;
  * stayed missing forever and the ledger's "Flare tx" column read "—" on rows that genuinely
  * had one.
  */
-async function backfillTxHashes(db: ReturnType<typeof getDb>): Promise<void> {
+async function backfillTxHashes(db: Db): Promise<void> {
   const cutoff = Math.floor(Date.now() / 1000) - TX_HASH_BACKFILL_MAX_AGE_S;
-  const rows = db
+  const rows = (await db
     .prepare(
       `SELECT e.xrpl_tx_hash, e.call_id, e.mode, e.xrpl_account, e.created_at, e.nonce, p.content_hash
          FROM executions e
@@ -111,7 +111,7 @@ async function backfillTxHashes(db: ReturnType<typeof getDb>): Promise<void> {
           AND e.flare_tx_hash IS NULL AND e.mode = 'copy'
           AND e.created_at >= ?`
     )
-    .all(cutoff) as unknown as PendingRow[];
+    .all(cutoff)) as unknown as PendingRow[];
 
   for (const row of rows) {
     try {
@@ -123,7 +123,7 @@ async function backfillTxHashes(db: ReturnType<typeof getDb>): Promise<void> {
         notBefore: row.created_at,
       });
       if (result.flareTxHash) {
-        db.prepare("UPDATE executions SET flare_tx_hash = ? WHERE xrpl_tx_hash = ? AND flare_tx_hash IS NULL").run(
+        await db.prepare("UPDATE executions SET flare_tx_hash = ? WHERE xrpl_tx_hash = ? AND flare_tx_hash IS NULL").run(
           result.flareTxHash,
           row.xrpl_tx_hash
         );
@@ -139,8 +139,8 @@ async function sweep() {
   if (sweeping) return;
   sweeping = true;
   try {
-    const db = getDb();
-    const rows = db
+    const db = await getDb();
+    const rows = (await db
       .prepare(
         `SELECT e.xrpl_tx_hash, e.call_id, e.mode, e.xrpl_account, e.created_at, e.nonce, p.content_hash
            FROM executions e
@@ -148,7 +148,7 @@ async function sweep() {
            JOIN posts p ON p.id = c.post_id
           WHERE e.status = 'pending' AND e.synthetic = 0`
       )
-      .all() as unknown as PendingRow[];
+      .all()) as unknown as PendingRow[];
 
     await backfillTxHashes(db);
 

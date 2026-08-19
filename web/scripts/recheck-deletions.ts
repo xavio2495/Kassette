@@ -64,12 +64,12 @@ async function check(postId: string): Promise<{ verdict: Verdict; detail: string
 
 async function main() {
   console.log(`mode  ${DRY_RUN ? "dry run — nothing written" : "writing"}\n`);
-  const db = getDb();
+  const db = await getDb();
 
   // Real posts only. A seeded row's `platform_post_id` is a plausible-looking placeholder
   // (`demo_caller-1`), so checking it would 404 and mark invented posts as deleted — turning
   // the seed data into fabricated evidence of a delete that never happened.
-  const rows = db
+  const rows = (await db
     .prepare(
       `SELECT p.id, p.platform_post_id, p.url, p.content, i.handle
          FROM posts p JOIN influencers i ON i.id = p.influencer_id
@@ -78,7 +78,7 @@ async function main() {
           AND p.platform_post_id GLOB '[0-9]*'
         ORDER BY p.posted_at DESC`
     )
-    .all() as unknown as PostRow[];
+    .all()) as unknown as PostRow[];
 
   const todo = rows.slice(0, LIMIT === Infinity ? undefined : LIMIT);
   console.log(`${todo.length} real post(s) to check (of ${rows.length} eligible)\n`);
@@ -100,7 +100,7 @@ async function main() {
       const preview = row.content.replace(/\s+/g, " ").slice(0, 60);
       console.log(`  ✗ GONE  ${row.platform_post_id} @${row.handle} — "${preview}…"`);
       if (!DRY_RUN) {
-        db.prepare("UPDATE posts SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL").run(now, row.id);
+        await db.prepare("UPDATE posts SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL").run(now, row.id);
       }
     }
     await sleep(PACE_MS);

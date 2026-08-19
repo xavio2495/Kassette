@@ -13,12 +13,11 @@
 // only the registry can say a mint landed.
 //
 // ⚠️ Every row written here has `synthetic = 0`, which is what distinguishes it from the
-// seeded demo executions (lib/schema.sql). The UI links identifiers only for real rows.
+// seeded demo executions (lib/schema.pg.sql). The UI links identifiers only for real rows.
 
-import type { DatabaseSync } from "node:sqlite";
 import { createPublicClient, http, type PublicClient } from "viem";
 
-import { getDb } from "./db";
+import { getDb, type Db } from "./db";
 import { COSTON2_RPC } from "./flare";
 
 const executionRegistryAbi = [
@@ -146,15 +145,15 @@ export interface PendingExecution {
  * been verified. `xrpl_tx_hash` is UNIQUE in the schema, so re-submitting the same hash is
  * rejected rather than double-counted.
  */
-export function recordPending(e: PendingExecution, database?: DatabaseSync): { id: number } {
-  const db = database ?? getDb();
-  db.prepare(
+export async function recordPending(e: PendingExecution, database?: Db): Promise<{ id: number }> {
+  const db = database ?? (await getDb());
+  await db.prepare(
     `INSERT INTO executions
        (call_id, mode, xrpl_account, xrpl_tx_hash, direction, fxrp_amount, flare_tx_hash, nonce, status, created_at, synthetic)
      VALUES (?,?,?,?,?,?,NULL,?,'pending',?,0)`
   ).run(e.callId, e.mode, e.xrplAccount, e.xrplTxHash, e.direction, e.fxrpAmount, e.nonce ?? null, Math.floor(Date.now() / 1000));
 
-  const row = db.prepare("SELECT id FROM executions WHERE xrpl_tx_hash = ?").get(e.xrplTxHash) as { id: number };
+  const row = await db.prepare("SELECT id FROM executions WHERE xrpl_tx_hash = ?").get(e.xrplTxHash) as { id: number };
   return { id: row.id };
 }
 
@@ -333,29 +332,31 @@ async function findExecutionTxHash(
  * ⚠️ Only ever called with `ConfirmResult.terminal`, which a timeout does not set — see the
  * note there. Guarded on `status = 'pending'` so it can never demote a confirmed execution.
  */
-export function markFailed(xrplTxHash: string, reason: string, database?: DatabaseSync): boolean {
-  const db = database ?? getDb();
-  db.prepare("UPDATE executions SET status = 'failed', reason = ? WHERE xrpl_tx_hash = ? AND status = 'pending'").run(
-    reason,
-    xrplTxHash
-  );
-  return (db.prepare("SELECT changes() AS n").get() as { n: number }).n > 0;
+export async function markFailed(xrplTxHash: string, reason: string, database?: Db): Promise<boolean> {
+  const db = database ?? (await getDb());
+  // ⚠️ `changes` comes back from the statement itself. SQLite's `SELECT changes()` was a
+  // separate round trip against connection-local state — on a pooled Postgres connection
+  // that second query can land on a DIFFERENT backend and report someone else's count.
+  const { changes } = await db
+    .prepare("UPDATE executions SET status = 'failed', reason = ? WHERE xrpl_tx_hash = ? AND status = 'pending'")
+    .run(reason, xrplTxHash);
+  return changes > 0;
 }
 
 /** Promote a pending row once the chain has confirmed it. */
-export function markExecuted(
+export async function markExecuted(
   xrplTxHash: string,
   fxrpAmountUBA: string,
   assetMintingDecimals: number,
-  database?: DatabaseSync,
+  database?: Db,
   flareTxHash?: string | null
-): void {
-  const db = database ?? getDb();
+): Promise<void> {
+  const db = database ?? (await getDb());
   const fxrp = (Number(fxrpAmountUBA) / 10 ** assetMintingDecimals).toString();
   // COALESCE rather than overwrite with NULL: a `null` here means "couldn't find one this
   // time", not "there isn't one" — a hash written by an earlier, luckier lookup (e.g. a
   // logs-serving RPC that was available then but isn't now) must not be erased.
-  db.prepare(
+  await db.prepare(
     "UPDATE executions SET status = 'executed', fxrp_amount = ?, reason = NULL, flare_tx_hash = COALESCE(?, flare_tx_hash) WHERE xrpl_tx_hash = ?"
   ).run(fxrp, flareTxHash ?? null, xrplTxHash);
 }
